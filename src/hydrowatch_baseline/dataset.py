@@ -12,6 +12,48 @@ REFERENCE_CHANNELS = ("flood", "water_pre", "water_peak", "permanent", "receded"
 MODEL_TARGET_CHANNELS = ("water_pre", "water_peak", "flood")
 
 
+def select_training_rows(
+    manifest: pd.DataFrame,
+    validation_event: str,
+    seed: int = 42,
+    negatives_per_positive: float = 2.0,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Hold out one flood event plus every baseline control from training."""
+    required = {
+        "event_id", "event_kind", "flood_fraction",
+        "water_pre_fraction", "water_peak_fraction",
+    }
+    missing = required - set(manifest.columns)
+    if missing:
+        raise ValueError(f"Manifest is missing columns: {sorted(missing)}")
+    flood_events = set(manifest.loc[manifest["event_kind"] != "baseline", "event_id"])
+    if validation_event not in flood_events:
+        raise ValueError(f"Unknown validation event: {validation_event}")
+    is_control = manifest["event_kind"] == "baseline"
+    is_held_out = manifest["event_id"] == validation_event
+    validation = manifest[is_held_out | is_control].copy()
+    candidates = manifest[~is_held_out & ~is_control].copy()
+    positive = candidates[candidates["flood_fraction"] > 0]
+    water_only = candidates[
+        (candidates["flood_fraction"] == 0)
+        & ((candidates["water_pre_fraction"] > 0) | (candidates["water_peak_fraction"] > 0))
+    ]
+    dry = candidates[
+        (candidates["flood_fraction"] == 0)
+        & (candidates["water_pre_fraction"] == 0)
+        & (candidates["water_peak_fraction"] == 0)
+    ]
+    target_negative = max(1, int(len(positive) * negatives_per_positive))
+    water_count = min(len(water_only), target_negative // 2)
+    dry_count = min(len(dry), target_negative - water_count)
+    selected = pd.concat([
+        positive,
+        water_only.sample(n=water_count, random_state=seed) if water_count else water_only.iloc[:0],
+        dry.sample(n=dry_count, random_state=seed) if dry_count else dry.iloc[:0],
+    ], ignore_index=True)
+    return selected.sample(frac=1.0, random_state=seed).reset_index(drop=True), validation
+
+
 def _rasterio():
     try:
         import rasterio

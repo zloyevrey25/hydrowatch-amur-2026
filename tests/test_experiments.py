@@ -4,13 +4,13 @@ import unittest
 
 import pandas as pd
 
+from hydrowatch_baseline.dataset import select_training_rows
 from hydrowatch_baseline.experiments import (
     build_experiment_plan,
     fold_score_pair_ids,
     parse_ablations,
 )
 from hydrowatch_baseline.pipeline import select_pairs
-from hydrowatch_baseline.training import select_training_rows
 
 
 class ExperimentPlanTests(unittest.TestCase):
