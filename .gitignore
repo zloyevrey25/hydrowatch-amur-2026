@@ -4,6 +4,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .mypy_cache/
+*.egg-info/
 
 # Competition data and generated artifacts must stay local.
 data/
@@ -13,4 +14,3 @@ outputs/
 *.tiff
 *.zip
 *.tar.gz
-

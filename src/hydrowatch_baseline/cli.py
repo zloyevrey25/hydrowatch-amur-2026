@@ -35,14 +35,13 @@ def main() -> None:
     sturm = config["sturm"]
     repository = resolve_project_path(sturm["repository"], project_root)
     weights = resolve_project_path(sturm["weights"], project_root)
-    from .sturm import load_s1_model
+    from .sturm import load_multimodal_model
     from .pipeline import run_dataset
 
-    model = load_s1_model(repository, weights, sturm["patch_size"])
+    model = load_multimodal_model(repository, weights, sturm["patch_size"])
     submission = run_dataset(args.data_root, args.output_dir, model, config)
     print(f"Created {args.output_dir / 'submission.csv'} with {len(submission)} pairs")
 
 
 if __name__ == "__main__":
     main()
-

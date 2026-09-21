@@ -19,7 +19,7 @@ def _require_rasterio():
 
 
 def find_single(directory: Path, pattern: str, required: bool = True) -> Path | None:
-    matches = [Path(p) for p in glob.glob(str(directory / pattern))]
+    matches = [Path(path) for path in glob.glob(str(directory / pattern))]
     if not matches and not required:
         return None
     if len(matches) != 1:
@@ -27,9 +27,7 @@ def find_single(directory: Path, pattern: str, required: bool = True) -> Path | 
     return matches[0]
 
 
-def read_s1(path: Path, config: dict) -> tuple[np.ndarray, dict]:
-    from .sturm import normalize_s1
-
+def read_s1(path: Path) -> tuple[np.ndarray, np.ndarray, dict]:
     rasterio, _, _ = _require_rasterio()
     with rasterio.open(path) as source:
         if source.count < 2:
@@ -37,47 +35,22 @@ def read_s1(path: Path, config: dict) -> tuple[np.ndarray, dict]:
         vv, vh = source.read([1, 2], out_dtype="float32")
         profile = source.profile.copy()
         profile.update(count=1, dtype="uint8", nodata=0, compress="deflate")
-    return normalize_s1(vv, vh, config), profile
+    return vv, vh, profile
 
 
-def optical_probability(path: Path | None, config: dict) -> np.ndarray | None:
+def read_optical_indices(path: Path | None, shape: tuple[int, int], config: dict):
     if path is None:
-        return None
+        missing = np.full(shape, np.nan, dtype=np.float32)
+        return missing, missing.copy()
     rasterio, _, _ = _require_rasterio()
-    optical = config["optical"]
-    indices = [
-        optical["ndwi_band"], optical["mndwi_band"],
-        optical["ndvi_band"], optical["awei_band"],
-    ]
+    bands = [config["optical"]["ndwi_band"], config["optical"]["mndwi_band"]]
     with rasterio.open(path) as source:
-        if source.count < max(indices):
-            raise ValueError(f"{path} has {source.count} bands but baseline needs band {max(indices)}")
-        ndwi, mndwi, ndvi, awei = source.read(indices, out_dtype="float32")
-    valid = np.isfinite(ndwi) & np.isfinite(mndwi) & np.isfinite(ndvi) & np.isfinite(awei)
-    water = (
-        (ndwi > optical["ndwi_threshold"])
-        & (mndwi > optical["mndwi_threshold"])
-        & (ndvi <= optical["ndvi_max"])
-        & (awei > optical["awei_threshold"])
-    )
-    result = np.full(water.shape, np.nan, dtype=np.float32)
-    result[valid] = water[valid].astype(np.float32)
-    return result
-
-
-def fuse_probability(sar: np.ndarray, optical: np.ndarray | None, config: dict) -> np.ndarray:
-    if optical is None:
-        return sar
-    if optical.shape != sar.shape:
-        raise ValueError(f"Optical and SAR grids differ: {optical.shape} vs {sar.shape}")
-    fusion = config["fusion"]
-    valid = np.isfinite(optical)
-    result = sar.copy()
-    result[valid] = (
-        fusion["sar_weight_with_optical"] * sar[valid]
-        + fusion["optical_weight"] * optical[valid]
-    )
-    return result
+        if source.count < max(bands):
+            raise ValueError(f"{path} has {source.count} bands but baseline needs band {max(bands)}")
+        if (source.height, source.width) != shape:
+            raise ValueError(f"Optical and SAR grids differ: {(source.height, source.width)} vs {shape}")
+        ndwi, mndwi = source.read(bands, out_dtype="float32")
+    return ndwi, mndwi
 
 
 def read_aux_on_grid(path: Path, target_profile: dict) -> np.ndarray:
@@ -88,12 +61,9 @@ def read_aux_on_grid(path: Path, target_profile: dict) -> np.ndarray:
             raise ValueError(f"{path} must contain six auxiliary bands")
         for band in range(1, 7):
             reproject(
-                source=rasterio.band(source, band),
-                destination=destination[band - 1],
-                src_transform=source.transform,
-                src_crs=source.crs,
-                dst_transform=target_profile["transform"],
-                dst_crs=target_profile["crs"],
+                source=rasterio.band(source, band), destination=destination[band - 1],
+                src_transform=source.transform, src_crs=source.crs,
+                dst_transform=target_profile["transform"], dst_crs=target_profile["crs"],
                 resampling=Resampling.nearest if band == 6 else Resampling.bilinear,
             )
     return destination
@@ -109,31 +79,32 @@ def remove_small_components(mask: np.ndarray, minimum_pixels: int) -> np.ndarray
     return keep[labels]
 
 
-def derive_masks(pre_probability: np.ndarray, peak_probability: np.ndarray, aux: np.ndarray, config: dict):
-    threshold = config["fusion"]["water_threshold"]
-    hydrology = config["hydrology"]
+def derive_masks(probabilities: np.ndarray, aux: np.ndarray, config: dict):
+    model, hydrology = config["model"], config["hydrology"]
     slope, hand, occurrence, _, _, builtup = aux
     plausible = (
-        np.isfinite(slope)
-        & np.isfinite(hand)
+        np.isfinite(slope) & np.isfinite(hand)
         & (slope <= hydrology["slope_max_deg"])
         & (hand <= hydrology["hand_max_m"])
     )
     if hydrology["exclude_builtup"]:
         plausible &= np.nan_to_num(builtup, nan=0.0) < 0.5
-
-    water_pre = (pre_probability >= threshold) & plausible
-    water_peak = (peak_probability >= threshold) & plausible
+    water_pre = (probabilities[..., 0] >= model["water_threshold"]) & plausible
+    water_peak = (probabilities[..., 1] >= model["water_threshold"]) & plausible
     permanent = np.nan_to_num(occurrence, nan=0.0) >= hydrology["permanent_occurrence_min"]
-    flood = water_peak & ~water_pre & ~permanent
-    flood = remove_small_components(flood, hydrology["minimum_component_pixels"])
-    return water_pre, water_peak, flood
+    temporal_flood = water_peak & ~water_pre & ~permanent
+    learned_flood = probabilities[..., 2] >= model["flood_threshold"]
+    flood = temporal_flood & learned_flood
+    if not flood.any() and temporal_flood.any():
+        flood = temporal_flood
+    return water_pre, water_peak, remove_small_components(
+        flood, hydrology["minimum_component_pixels"]
+    )
 
 
 def pixel_area_ha(profile: dict) -> float:
     transform = profile["transform"]
-    area_m2 = abs(transform.a * transform.e - transform.b * transform.d)
-    return area_m2 / 10_000.0
+    return abs(transform.a * transform.e - transform.b * transform.d) / 10_000.0
 
 
 def write_mask(path: Path, mask: np.ndarray, profile: dict) -> None:
@@ -144,33 +115,38 @@ def write_mask(path: Path, mask: np.ndarray, profile: dict) -> None:
 
 
 def run_dataset(data_root: Path, output_dir: Path, model, config: dict) -> pd.DataFrame:
-    from .sturm import predict_probability
+    from .sturm import build_eight_channel_input, predict_multimask
 
     pairs = pd.read_csv(data_root / "pairs.csv")
     rows = []
     sturm = config["sturm"]
     for pair in pairs.itertuples(index=False):
         directory = data_root / pair.rasters_dir
-        pre_path = find_single(directory, "S1_pre_*.tif")
-        peak_path = find_single(directory, "S1_peak_*.tif")
-        opt_pre_path = find_single(directory, "SENTINEL2_pre_*.tif", required=False)
-        opt_peak_path = find_single(directory, "SENTINEL2_peak_*.tif", required=False)
-        aux_path = directory / "AUX_terrain_gsw.tif"
-
-        s1_pre, profile = read_s1(pre_path, config)
-        s1_peak, peak_profile = read_s1(peak_path, config)
+        vv_pre, vh_pre, profile = read_s1(find_single(directory, "S1_pre_*.tif"))
+        vv_peak, vh_peak, peak_profile = read_s1(find_single(directory, "S1_peak_*.tif"))
         for key in ("width", "height", "crs", "transform"):
             if profile[key] != peak_profile[key]:
                 raise ValueError(f"S1 grids differ for {pair.pair_id}: {key}")
-
-        pre_probability = predict_probability(s1_pre, model, sturm["patch_size"], sturm["stride"], sturm["batch_size"], sturm["water_class_index"])
-        peak_probability = predict_probability(s1_peak, model, sturm["patch_size"], sturm["stride"], sturm["batch_size"], sturm["water_class_index"])
-        pre_probability = fuse_probability(pre_probability, optical_probability(opt_pre_path, config), config)
-        peak_probability = fuse_probability(peak_probability, optical_probability(opt_peak_path, config), config)
-
-        aux = read_aux_on_grid(aux_path, profile)
-        water_pre, water_peak, flood = derive_masks(pre_probability, peak_probability, aux, config)
-        write_mask(output_dir / "predictions" / f"{pair.pair_id}_flood.tif", flood, profile)
+        shape = vv_pre.shape
+        ndwi_pre, mndwi_pre = read_optical_indices(
+            find_single(directory, "SENTINEL2_pre_*.tif"), shape, config
+        )
+        ndwi_peak, mndwi_peak = read_optical_indices(
+            find_single(directory, "SENTINEL2_peak_*.tif"), shape, config
+        )
+        model_input = build_eight_channel_input(
+            vv_pre, vh_pre, vv_peak, vh_peak,
+            ndwi_pre, mndwi_pre, ndwi_peak, mndwi_peak, config,
+        )
+        probabilities = predict_multimask(
+            model_input, model, sturm["patch_size"], sturm["stride"], sturm["batch_size"]
+        )
+        aux = read_aux_on_grid(directory / "AUX_terrain_gsw.tif", profile)
+        water_pre, water_peak, flood = derive_masks(probabilities, aux, config)
+        prediction_dir = output_dir / "predictions"
+        write_mask(prediction_dir / f"{pair.pair_id}_water_pre.tif", water_pre, profile)
+        write_mask(prediction_dir / f"{pair.pair_id}_water_peak.tif", water_peak, profile)
+        write_mask(prediction_dir / f"{pair.pair_id}_flood.tif", flood, profile)
         area = pixel_area_ha(profile)
         rows.append({
             "pair_id": pair.pair_id,
@@ -178,9 +154,7 @@ def run_dataset(data_root: Path, output_dir: Path, model, config: dict) -> pd.Da
             "water_pre_ha": round(float(water_pre.sum() * area), 2),
             "water_peak_ha": round(float(water_peak.sum() * area), 2),
         })
-
     submission = pd.DataFrame(rows)
     output_dir.mkdir(parents=True, exist_ok=True)
     submission.to_csv(output_dir / "submission.csv", index=False)
     return submission
-

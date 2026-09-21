@@ -15,10 +15,14 @@ EXPECTED_MD5 = "14a046d9d7965f2a3c511acb1bbca57b"
 def safe_extract(archive: tarfile.TarFile, destination: Path) -> None:
     destination = destination.resolve()
     for member in archive.getmembers():
+        if member.issym() or member.islnk() or member.isdev():
+            raise ValueError(f"Unsupported archive member: {member.name}")
         target = (destination / member.name).resolve()
         if destination not in target.parents and target != destination:
             raise ValueError(f"Unsafe archive member: {member.name}")
-    archive.extractall(destination, filter="data")
+    # Python 3.9 has no tarfile extraction_filter argument. The checks above
+    # provide the equivalent guarantees needed for this known model archive.
+    archive.extractall(destination)
 
 
 def main() -> None:

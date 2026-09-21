@@ -4,7 +4,6 @@ weights = "models/sturm_s1/unet/1/model_weights.hdf5"
 patch_size = 128
 stride = 96
 batch_size = 4
-water_class_index = 1
 
 [normalization]
 # STURM S1 tiles are normalized. These clipping limits reproduce the published
@@ -15,22 +14,20 @@ vv_max_db = 10.0
 vh_min_db = -30.0
 vh_max_db = 10.0
 
-[fusion]
+[model]
+# Output channels: water_pre, water_peak, flood.
 water_threshold = 0.50
-sar_weight_with_optical = 0.70
-optical_weight = 0.30
+flood_threshold = 0.50
+missing_optical_value = -1.0
 
 [optical]
-# Band order in the case reference export:
+# Band order in the case reference export. The multimodal baseline consumes
+# NDWI and MNDWI from each date; the other bands remain available for ablations.
 # B3, B4, B8, B11, NDWI, MNDWI, NDVI, AWEIsh
 ndwi_band = 5
 mndwi_band = 6
 ndvi_band = 7
 awei_band = 8
-ndwi_threshold = 0.15
-mndwi_threshold = 0.10
-ndvi_max = 0.20
-awei_threshold = 0.0
 
 [hydrology]
 slope_max_deg = 5.0
@@ -38,4 +35,3 @@ hand_max_m = 25.0
 permanent_occurrence_min = 80.0
 exclude_builtup = true
 minimum_component_pixels = 25
-
