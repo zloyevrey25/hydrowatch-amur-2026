@@ -27,9 +27,9 @@ def final_validation_metrics(output_dir: Path) -> dict[str, float]:
     history = pd.read_csv(history_path)
     if history.empty:
         return {}
-    final = history.iloc[-1]
+    best = history.loc[history["val_loss"].idxmin()] if "val_loss" in history else history.iloc[-1]
     return {
-        column: float(final[column])
+        column: float(best[column])
         for column in history.columns
         if column.startswith("val_iou_") or column.startswith("val_f1_")
     }
@@ -96,8 +96,8 @@ def main() -> None:
                 )
             model = load_multimodal_model(repository, source_weights, config["sturm"]["patch_size"])
             model.load_weights(final_weights)
-            run_dataset(args.data_root, output_dir, model, config)
             fold_pair_ids = fold_score_pair_ids(args.data_root, experiment.validation_event)
+            run_dataset(args.data_root, output_dir, model, config, pair_ids=fold_pair_ids)
             score = score_submission(
                 output_dir / "submission.csv", args.data_root, fold_pair_ids
             )

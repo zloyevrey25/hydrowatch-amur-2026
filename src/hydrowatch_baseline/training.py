@@ -17,11 +17,21 @@ def select_training_rows(
     seed: int = 42,
     negatives_per_positive: float = 2.0,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Split by event and reduce the overwhelming number of empty patches."""
-    if validation_event not in set(manifest["event_id"]):
+    """Hold out one flood event plus every baseline control from training."""
+    required = {
+        "event_id", "event_kind", "flood_fraction",
+        "water_pre_fraction", "water_peak_fraction",
+    }
+    missing = required - set(manifest.columns)
+    if missing:
+        raise ValueError(f"Manifest is missing columns: {sorted(missing)}")
+    flood_events = set(manifest.loc[manifest["event_kind"] != "baseline", "event_id"])
+    if validation_event not in flood_events:
         raise ValueError(f"Unknown validation event: {validation_event}")
-    validation = manifest[manifest["event_id"] == validation_event].copy()
-    candidates = manifest[manifest["event_id"] != validation_event].copy()
+    is_control = manifest["event_kind"] == "baseline"
+    is_held_out = manifest["event_id"] == validation_event
+    validation = manifest[is_held_out | is_control].copy()
+    candidates = manifest[~is_held_out & ~is_control].copy()
     positive = candidates[candidates["flood_fraction"] > 0]
     water_only = candidates[
         (candidates["flood_fraction"] == 0)
@@ -244,10 +254,14 @@ def train_multimodal(
     )
     model = load_multimodal_model(repository, source_weights, config["sturm"]["patch_size"])
     output_dir.mkdir(parents=True, exist_ok=True)
+    history_path = output_dir / "training_history.csv"
+    history_path.unlink(missing_ok=True)
+    best_weights = output_dir / "best.weights.h5"
+    best_weights.unlink(missing_ok=True)
     callbacks = [
-        tf.keras.callbacks.CSVLogger(output_dir / "training_history.csv", append=True),
+        tf.keras.callbacks.CSVLogger(history_path, append=True),
         tf.keras.callbacks.ModelCheckpoint(
-            output_dir / "best.weights.h5", monitor="val_loss", save_best_only=True,
+            best_weights, monitor="val_loss", save_best_only=True,
             save_weights_only=True,
         ),
         tf.keras.callbacks.EarlyStopping(
@@ -276,6 +290,8 @@ def train_multimodal(
         epochs=warmup_epochs + finetune_epochs,
         callbacks=callbacks,
     )
+    if best_weights.exists():
+        model.load_weights(best_weights)
     final_weights = output_dir / "final.weights.h5"
     model.save_weights(final_weights)
     return final_weights

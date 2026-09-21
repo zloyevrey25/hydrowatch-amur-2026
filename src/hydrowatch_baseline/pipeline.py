@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 import glob
 
@@ -114,10 +115,27 @@ def write_mask(path: Path, mask: np.ndarray, profile: dict) -> None:
         destination.write(mask.astype("uint8"), 1)
 
 
-def run_dataset(data_root: Path, output_dir: Path, model, config: dict) -> pd.DataFrame:
+def select_pairs(pairs: pd.DataFrame, pair_ids: Iterable[str] | None = None) -> pd.DataFrame:
+    """Return requested pairs in dataset order and reject unknown identifiers."""
+    if pair_ids is None:
+        return pairs.copy()
+    requested = set(pair_ids)
+    unknown = sorted(requested - set(pairs["pair_id"]))
+    if unknown:
+        raise ValueError(f"Unknown pair_id(s): {unknown}")
+    return pairs[pairs["pair_id"].isin(requested)].copy()
+
+
+def run_dataset(
+    data_root: Path,
+    output_dir: Path,
+    model,
+    config: dict,
+    pair_ids: Iterable[str] | None = None,
+) -> pd.DataFrame:
     from .sturm import build_eight_channel_input, predict_multimask
 
-    pairs = pd.read_csv(data_root / "pairs.csv")
+    pairs = select_pairs(pd.read_csv(data_root / "pairs.csv"), pair_ids)
     rows = []
     sturm = config["sturm"]
     for pair in pairs.itertuples(index=False):

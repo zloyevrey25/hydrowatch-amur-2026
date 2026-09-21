@@ -144,8 +144,9 @@ This creates:
 - `dataset_summary.json` with dataset readiness and class-balance statistics.
 
 Splitting by event prevents patches from the same flood and AOI leaking into both
-training and validation. Empty patches are downsampled during training, while all
-validation patches are retained.
+training and validation. Baseline control pairs are excluded from training and are
+kept in every validation fold to measure false flood detections. Empty patches are
+downsampled during training, while all validation patches are retained.
 
 ## Train
 
@@ -181,6 +182,9 @@ python scripts/run_experiments.py \
 The default ablations are `sar-only`, `sar-ndwi`, and `sar-ndwi-mndwi`. Each
 run writes weights, predictions, `submission.csv`, a per-pair report, and an
 incrementally updated `experiment_summary.csv` / `experiment_summary.json`.
+Inference and scoring are limited to the held-out event and baseline controls for
+that fold. The summary takes validation IoU/F1 from the epoch with the lowest
+validation loss.
 Use `--dry-run` to inspect the fold-by-ablation plan without training; use
 `--resume` to reuse an existing `final.weights.h5`.
 
