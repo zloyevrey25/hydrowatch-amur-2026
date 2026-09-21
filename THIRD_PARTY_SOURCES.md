@@ -18,3 +18,14 @@ The STURM dataset may be used only for training on events that do not overlap th
 CosmoHackathon evaluated or private-holdout territories and dates. Copernicus EMS
 products must not be used to derive answers for evaluated pairs.
 
+## Competition input imagery
+
+- Sentinel-1 GRD: `COPERNICUS/S1_GRD` in Google Earth Engine
+- Sentinel-2 L2A: `COPERNICUS/S2_SR_HARMONIZED` in Google Earth Engine
+- License: Copernicus Sentinel data terms
+- Export grid: organizer reference-mask grid, EPSG:32652, 10 m
+
+The generated export script filters Sentinel-1 by the supplied acquisition date,
+orbit direction and relative orbit. Sentinel-2 invalid pixels are masked with SCL.
+No operational flood-mapping product is used to form predictions for evaluated
+pairs.

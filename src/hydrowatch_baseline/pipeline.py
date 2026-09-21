@@ -32,7 +32,7 @@ def read_s1(path: Path) -> tuple[np.ndarray, np.ndarray, dict]:
     with rasterio.open(path) as source:
         if source.count < 2:
             raise ValueError(f"{path} must contain VV and VH as the first two bands")
-        vv, vh = source.read([1, 2], out_dtype="float32")
+        vv, vh = source.read([1, 2], out_dtype="float32", masked=True).filled(np.nan)
         profile = source.profile.copy()
         profile.update(count=1, dtype="uint8", nodata=0, compress="deflate")
     return vv, vh, profile
@@ -49,7 +49,7 @@ def read_optical_indices(path: Path | None, shape: tuple[int, int], config: dict
             raise ValueError(f"{path} has {source.count} bands but baseline needs band {max(bands)}")
         if (source.height, source.width) != shape:
             raise ValueError(f"Optical and SAR grids differ: {(source.height, source.width)} vs {shape}")
-        ndwi, mndwi = source.read(bands, out_dtype="float32")
+        ndwi, mndwi = source.read(bands, out_dtype="float32", masked=True).filled(np.nan)
     return ndwi, mndwi
 
 
@@ -129,10 +129,10 @@ def run_dataset(data_root: Path, output_dir: Path, model, config: dict) -> pd.Da
                 raise ValueError(f"S1 grids differ for {pair.pair_id}: {key}")
         shape = vv_pre.shape
         ndwi_pre, mndwi_pre = read_optical_indices(
-            find_single(directory, "SENTINEL2_pre_*.tif"), shape, config
+            find_single(directory, "SENTINEL2_pre_*.tif", required=False), shape, config
         )
         ndwi_peak, mndwi_peak = read_optical_indices(
-            find_single(directory, "SENTINEL2_peak_*.tif"), shape, config
+            find_single(directory, "SENTINEL2_peak_*.tif", required=False), shape, config
         )
         model_input = build_eight_channel_input(
             vv_pre, vh_pre, vv_peak, vh_peak,

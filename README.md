@@ -32,7 +32,9 @@ rasters/<event_id>/<aoi_id>/
 ```
 
 All Sentinel rasters must use the 10 m reference grid in EPSG:32652. The baseline
-resamples the supplied 30 m auxiliary raster internally.
+resamples the supplied 30 m auxiliary raster internally. Sentinel-2 is optional for
+individual pairs: absent or cloud-masked optical pixels receive the explicit value
+`-1`, and optical dropout during training teaches the network to fall back to SAR.
 
 ## Installation
 
@@ -63,12 +65,79 @@ feature difference feed a new flood head. This is a safe warm start, not a train
 multimodal model. Fine-tuning on event-level training folds is required before the
 optical channels and the new flood head contribute useful predictions.
 
+## Prepare training and validation data
+
+The lite case archive contains 11 reference masks, auxiliary rasters, vectors and
+scene passports, but no Sentinel imagery. Export the required Sentinel GeoTIFFs
+first. Generate Earth Engine tasks aligned exactly to every reference grid:
+
+```bash
+python scripts/generate_gee_exports.py \
+  --data-root data/hydrowatch_amur \
+  --output outputs/gee_export.js
+```
+
+Paste `outputs/gee_export.js` into the Google Earth Engine Code Editor, run it, and
+start the generated Drive export tasks. After downloading the GeoTIFFs into one
+directory, validate their grid and install them into the expected pair directories:
+
+```bash
+python scripts/install_gee_exports.py \
+  --source-dir /path/to/downloaded/geotiffs \
+  --data-root data/hydrowatch_amur
+```
+
+The export uses `COPERNICUS/S1_GRD` in dB with the required orbit and
+`COPERNICUS/S2_SR_HARMONIZED` with SCL cloud masking. It writes VV, VH and their dB
+difference for Sentinel-1, and B3, B4, B8, B11, NDWI, MNDWI, NDVI and AWEIsh for
+Sentinel-2. Pairs with no optical dates remain valid SAR-only training examples.
+
+Then audit the dataset and build patch manifests:
+
+```bash
+hydrowatch-baseline prepare \
+  --data-root data/hydrowatch_amur \
+  --output-dir outputs/preparation
+```
+
+This creates:
+
+- `data_audit.csv` with missing files, raster properties and reference areas;
+- `event_folds.csv` with one fold per complete hydrological event;
+- `patch_manifest.csv` with label fractions for each 128 x 128 patch.
+- `dataset_summary.json` with dataset readiness and class-balance statistics.
+
+Splitting by event prevents patches from the same flood and AOI leaking into both
+training and validation. Empty patches are downsampled during training, while all
+validation patches are retained.
+
+## Train
+
+The required reproducible training entry point is `scripts/train.py`. For example,
+hold out the entire June 2021 event:
+
+```bash
+python scripts/train.py \
+  --data-root data/hydrowatch_amur \
+  --manifest outputs/preparation/patch_manifest.csv \
+  --validation-event flood_2021_06_amur \
+  --output-dir outputs/training/fold_2
+```
+
+Training first updates the optical part of the first convolution and the new flood
+head while the rest of STURM is frozen. It then fine-tunes the full shared branch at
+a lower learning rate. The loss combines binary cross-entropy and Dice, gives extra
+weight to the rare flood channel, balances empty patches, and randomly removes the
+optical inputs in 35% of training patches. All these values are explicit in
+`configs/sturm_baseline.toml`.
+
 ## Run
 
 ```bash
 hydrowatch-baseline run \
   --data-root /path/to/hydrowatch_amur \
-  --output-dir outputs/sturm_baseline
+  --output-dir outputs/sturm_baseline \
+  --trained-weights outputs/training/fold_2/best.weights.h5
 ```
 
 Calculate the official local metric against the supplied reference statistics:

@@ -29,6 +29,15 @@ mndwi_band = 6
 ndvi_band = 7
 awei_band = 8
 
+[training]
+optical_dropout = 0.35
+negatives_per_positive = 2.0
+warmup_learning_rate = 0.001
+finetune_learning_rate = 0.00001
+water_pre_loss_weight = 1.0
+water_peak_loss_weight = 1.0
+flood_loss_weight = 2.0
+
 [hydrology]
 slope_max_deg = 5.0
 hand_max_m = 25.0
