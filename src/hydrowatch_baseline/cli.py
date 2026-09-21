@@ -21,6 +21,11 @@ def build_parser() -> argparse.ArgumentParser:
     score.add_argument("--data-root", type=Path, required=True)
     score.add_argument("--submission", type=Path, required=True)
 
+    report = subcommands.add_parser("report", help="Write score summary and per-pair diagnostics")
+    report.add_argument("--data-root", type=Path, required=True)
+    report.add_argument("--submission", type=Path, required=True)
+    report.add_argument("--output-dir", type=Path, default=Path("outputs/report"))
+
     prepare = subcommands.add_parser("prepare", help="Audit data and build event-safe patch manifests")
     prepare.add_argument("--data-root", type=Path, required=True)
     prepare.add_argument("--output-dir", type=Path, default=Path("outputs/preparation"))
@@ -35,6 +40,13 @@ def main() -> None:
         from .metric import score_submission
 
         print(json.dumps(score_submission(args.submission, args.data_root).as_dict(), indent=2))
+        return
+
+    if args.command == "report":
+        from .metric import write_submission_report
+
+        outputs = write_submission_report(args.submission, args.data_root, args.output_dir)
+        print(json.dumps({name: str(path) for name, path in outputs.items()}, indent=2))
         return
 
     if args.command == "prepare":

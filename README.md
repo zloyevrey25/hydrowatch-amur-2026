@@ -44,6 +44,42 @@ source .venv/bin/activate
 pip install -e .
 ```
 
+## Container
+
+Build a portable CLI image without case data, model weights or generated outputs:
+
+```bash
+docker build -t hydrowatch-amur .
+docker run --rm hydrowatch-amur --help
+```
+
+Mount local assets when running a command. The paths in the container must match
+the repository configuration, so the project directory is mounted at `/workspace`:
+
+```bash
+docker run --rm \
+  -v "$PWD:/workspace" \
+  -w /workspace \
+  hydrowatch-amur prepare \
+  --data-root data/hydrowatch_amur \
+  --output-dir outputs/preparation
+```
+
+This keeps competition data, downloaded STURM weights and outputs outside the
+image. `run` and training additionally require the mounted
+`external/STURM-Flood` submodule and `models/sturm_s1` weights. To start
+training from the image, replace the CLI entry point:
+
+```bash
+docker run --rm \
+  -v "$PWD:/workspace" \
+  -w /workspace \
+  --entrypoint python \
+  hydrowatch-amur scripts/train.py \
+  --data-root data/hydrowatch_amur \
+  --validation-event flood_2021_06_amur
+```
+
 Download the public Sentinel-1 weights once during development:
 
 ```bash
@@ -147,6 +183,18 @@ hydrowatch-baseline score \
   --data-root /path/to/hydrowatch_amur \
   --submission outputs/sturm_baseline/submission.csv
 ```
+
+Write a reusable validation report with the same score components plus per-pair
+area errors and control-pair penalties:
+
+```bash
+hydrowatch-baseline report \
+  --data-root /path/to/hydrowatch_amur \
+  --submission outputs/sturm_baseline/submission.csv \
+  --output-dir outputs/report/fold_2
+```
+
+This creates `score_summary.json` and `pair_diagnostics.csv`.
 
 The STURM normalization and fusion settings are deliberately explicit in
 `configs/sturm_baseline.toml`. They are baseline assumptions and must be selected

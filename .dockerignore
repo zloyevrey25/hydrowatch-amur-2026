@@ -1,0 +1,13 @@
+.git
+.venv
+__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+data
+models
+outputs
+*.tif
+*.tiff
+*.zip
+*.tar.gz

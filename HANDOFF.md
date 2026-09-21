@@ -247,7 +247,44 @@ python scripts/install_gee_exports.py \
 4. Не проведён leave-one-event-out запуск для всех четырёх событий.
 5. Не сделаны абляции SAR-only против SAR+optical.
 6. Не реализованы API, карта и отчёт сервиса.
-7. Нет Dockerfile и финального автономного пакета.
+7. Нет финального автономного пакета: Dockerfile добавлен, но образ ещё не
+   собирался в этой свежей среде и не включает данные или веса.
+
+## Обновление 2026-09-22
+
+Добавлена локальная команда отчёта по готовому `submission.csv`:
+
+```bash
+hydrowatch-baseline report \
+  --data-root data/hydrowatch_amur \
+  --submission outputs/sturm_baseline/submission.csv \
+  --output-dir outputs/report/fold_2
+```
+
+Она создаёт:
+
+- `score_summary.json` с официальным Score и четырьмя компонентами;
+- `pair_diagnostics.csv` с предсказанной/эталонной площадью, ошибкой в га,
+  quality-компонентой по каждой маске и штрафом `Spec_base` на контрольных парах.
+
+`score` и `report` используют общий путь валидации submission. Теперь явно
+отклоняются неизвестные `pair_id`, дубликаты, пропущенные пары, `NaN` и
+отрицательные площади.
+
+Проверки в этой среде:
+
+- `python -m compileall src scripts tests` проходит;
+- `PYTHONPATH=src python -m unittest tests.test_metric` проходит, 7 тестов;
+- полный `unittest discover` не запускался до конца из-за отсутствия `rasterio`
+  в текущем Python-окружении и отсутствия локальной `.venv` в свежем клоне.
+
+## Обновление 2026-09-22: контейнерный CLI
+
+Добавлены `Dockerfile` и `.dockerignore`. Образ устанавливает пакет и запускает
+`hydrowatch-baseline`; данные кейса, веса STURM и результаты исключены из build
+context и должны подключаться в контейнер как локальный том. Пример запуска
+`prepare` приведён в README. Сборка образа в этой среде ещё не проверялась:
+Docker не обнаружен в свежем клоне.
 
 ## Важный блокер доступа
 
