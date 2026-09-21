@@ -1,0 +1,3 @@
+[submodule "external/STURM-Flood"]
+	path = external/STURM-Flood
+	url = https://github.com/STURM-WEO/STURM-Flood.git

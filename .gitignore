@@ -1,0 +1,16 @@
+.DS_Store
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Competition data and generated artifacts must stay local.
+data/
+models/
+outputs/
+*.tif
+*.tiff
+*.zip
+*.tar.gz
+
