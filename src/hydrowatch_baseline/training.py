@@ -177,6 +177,18 @@ def channel_iou(channel: int, name: str):
     return metric
 
 
+def channel_f1(channel: int, name: str):
+    def metric(y_true, y_pred):
+        truth = tf.cast(y_true[..., channel] >= 0.5, tf.float32)
+        prediction = tf.cast(y_pred[..., channel] >= 0.5, tf.float32)
+        true_positive = tf.reduce_sum(truth * prediction)
+        denominator = tf.reduce_sum(truth) + tf.reduce_sum(prediction)
+        return (2.0 * true_positive + 1.0) / (denominator + 1.0)
+
+    metric.__name__ = name
+    return metric
+
+
 def compile_model(model, learning_rate: float, channel_weights) -> None:
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
@@ -185,6 +197,9 @@ def compile_model(model, learning_rate: float, channel_weights) -> None:
             channel_iou(0, "iou_water_pre"),
             channel_iou(1, "iou_water_peak"),
             channel_iou(2, "iou_flood"),
+            channel_f1(0, "f1_water_pre"),
+            channel_f1(1, "f1_water_peak"),
+            channel_f1(2, "f1_flood"),
         ],
     )
 

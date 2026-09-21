@@ -12,6 +12,7 @@ INPUT_CHANNELS = (
     "ndwi_pre", "mndwi_pre", "ndwi_peak", "mndwi_peak",
 )
 OUTPUT_CHANNELS = ("water_pre", "water_peak", "flood")
+OPTICAL_FEATURES = ("ndwi", "mndwi")
 
 
 def _scale_db(values: np.ndarray, low: float, high: float) -> np.ndarray:
@@ -24,6 +25,14 @@ def _scale_index(values: np.ndarray, missing_value: float) -> np.ndarray:
     result = np.full(values.shape, missing_value, dtype=np.float32)
     result[valid] = np.clip((values[valid] + 1.0) / 2.0, 0.0, 1.0)
     return result
+
+
+def _selected_optical_features(config: dict) -> set[str]:
+    selected = set(config["model"].get("optical_features", OPTICAL_FEATURES))
+    unknown = selected - set(OPTICAL_FEATURES)
+    if unknown:
+        raise ValueError(f"Unknown optical features: {sorted(unknown)}")
+    return selected
 
 
 def build_eight_channel_input(
@@ -42,15 +51,22 @@ def build_eight_channel_input(
         raise ValueError(f"All eight channels must have one grid, got {[x.shape for x in arrays]}")
     limits = config["normalization"]
     missing = config["model"]["missing_optical_value"]
+    selected_optical = _selected_optical_features(config)
+
+    def optical(values: np.ndarray, name: str) -> np.ndarray:
+        if name not in selected_optical:
+            return np.full(values.shape, missing, dtype=np.float32)
+        return _scale_index(values, missing)
+
     channels = (
         _scale_db(vv_pre, limits["vv_min_db"], limits["vv_max_db"]),
         _scale_db(vh_pre, limits["vh_min_db"], limits["vh_max_db"]),
         _scale_db(vv_peak, limits["vv_min_db"], limits["vv_max_db"]),
         _scale_db(vh_peak, limits["vh_min_db"], limits["vh_max_db"]),
-        _scale_index(ndwi_pre, missing),
-        _scale_index(mndwi_pre, missing),
-        _scale_index(ndwi_peak, missing),
-        _scale_index(mndwi_peak, missing),
+        optical(ndwi_pre, "ndwi"),
+        optical(mndwi_pre, "mndwi"),
+        optical(ndwi_peak, "ndwi"),
+        optical(mndwi_peak, "mndwi"),
     )
     return np.stack(channels, axis=-1).astype(np.float32)
 

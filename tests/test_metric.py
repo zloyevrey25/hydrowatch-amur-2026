@@ -101,6 +101,10 @@ class ScoreReportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unknown pair_id"):
             score_submission(bad, self.root)
 
+    def test_score_can_be_limited_to_held_out_event_and_controls(self):
+        score = score_submission(self.submission, self.root, ["event_pair", "control_pair"])
+        self.assertAlmostEqual(score.q_flood, 0.75)
+
 
 class MultimodalInputTests(unittest.TestCase):
     def test_builds_channels_in_documented_order(self):

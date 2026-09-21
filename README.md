@@ -167,6 +167,23 @@ weight to the rare flood channel, balances empty patches, and randomly removes t
 optical inputs in 35% of training patches. All these values are explicit in
 `configs/sturm_baseline.toml`.
 
+## Event-level experiments
+
+Run every leave-one-event-out fold for three comparable feature sets:
+
+```bash
+python scripts/run_experiments.py \
+  --data-root data/hydrowatch_amur \
+  --manifest outputs/preparation/patch_manifest.csv \
+  --output-root outputs/experiments
+```
+
+The default ablations are `sar-only`, `sar-ndwi`, and `sar-ndwi-mndwi`. Each
+run writes weights, predictions, `submission.csv`, a per-pair report, and an
+incrementally updated `experiment_summary.csv` / `experiment_summary.json`.
+Use `--dry-run` to inspect the fold-by-ablation plan without training; use
+`--resume` to reuse an existing `final.weights.h5`.
+
 ## Run
 
 ```bash

@@ -286,6 +286,21 @@ context и должны подключаться в контейнер как л
 `prepare` приведён в README. Сборка образа в этой среде ещё не проверялась:
 Docker не обнаружен в свежем клоне.
 
+## Обновление 2026-09-22: эксперименты и CI
+
+`scripts/run_experiments.py` строит декартово произведение не-baseline
+событий из `pairs.csv` и абляций `sar-only`, `sar-ndwi`, `sar-ndwi-mndwi`.
+Для каждой комбинации он обучает модель, запускает inference, пишет Score и
+покомпонентный отчёт, затем сразу обновляет `experiment_summary.csv` и JSON.
+`--dry-run` только сохраняет план, а `--resume` повторно использует веса.
+
+В `configs/sturm_baseline.toml` появился явный параметр
+`model.optical_features`; исключённые NDWI/MNDWI заменяются sentinel-значением,
+так что все три абляции используют неизменную восьмиканальную архитектуру.
+
+`.github/workflows/ci.yml` запускает unit-тесты в Python 3.12 и независимо
+проверяет сборку Docker-образа на каждом push и pull request.
+
 ## Важный блокер доступа
 
 Была предпринята попытка проверить Microsoft Planetary Computer STAC. Автоматическая

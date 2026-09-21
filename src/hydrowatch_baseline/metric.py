@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
+from collections.abc import Iterable
 from pathlib import Path
 import json
 
@@ -31,9 +32,19 @@ def _read_reference_stats(data_root: Path, pair_id: str) -> dict:
         return json.load(stream)["stats"]
 
 
-def _load_scoring_table(submission_path: str | Path, data_root: str | Path) -> pd.DataFrame:
+def _load_scoring_table(
+    submission_path: str | Path,
+    data_root: str | Path,
+    pair_ids: Iterable[str] | None = None,
+) -> pd.DataFrame:
     data_root = Path(data_root)
     pairs = pd.read_csv(data_root / "pairs.csv")
+    if pair_ids is not None:
+        requested = set(pair_ids)
+        unknown = requested - set(pairs["pair_id"])
+        if unknown:
+            raise ValueError(f"Requested unknown pair_id values: {sorted(unknown)}")
+        pairs = pairs[pairs["pair_id"].isin(requested)].copy()
     submission = pd.read_csv(submission_path)
     required = {"pair_id", "flood_ha", "water_pre_ha", "water_peak_ha"}
     missing = required - set(submission.columns)
@@ -86,14 +97,22 @@ def _score_table(table: pd.DataFrame) -> ScoreBreakdown:
     return ScoreBreakdown(float(score), float(q_flood), float(q_water_peak), float(q_water_pre), spec_base)
 
 
-def score_submission(submission_path: str | Path, data_root: str | Path) -> ScoreBreakdown:
-    table = _load_scoring_table(submission_path, data_root)
+def score_submission(
+    submission_path: str | Path,
+    data_root: str | Path,
+    pair_ids: Iterable[str] | None = None,
+) -> ScoreBreakdown:
+    table = _load_scoring_table(submission_path, data_root, pair_ids)
     return _score_table(table)
 
 
-def describe_submission(submission_path: str | Path, data_root: str | Path) -> tuple[ScoreBreakdown, pd.DataFrame]:
+def describe_submission(
+    submission_path: str | Path,
+    data_root: str | Path,
+    pair_ids: Iterable[str] | None = None,
+) -> tuple[ScoreBreakdown, pd.DataFrame]:
     """Return official score components and per-pair area diagnostics."""
-    table = _load_scoring_table(submission_path, data_root)
+    table = _load_scoring_table(submission_path, data_root, pair_ids)
     score = _score_table(table)
     report = table[["pair_id", "event_id", "event_kind", "aoi_id"]].copy()
     for channel, threshold in (
@@ -135,10 +154,11 @@ def write_submission_report(
     submission_path: str | Path,
     data_root: str | Path,
     output_dir: str | Path,
+    pair_ids: Iterable[str] | None = None,
 ) -> dict[str, Path]:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    score, details = describe_submission(submission_path, data_root)
+    score, details = describe_submission(submission_path, data_root, pair_ids)
     summary_path = output_dir / "score_summary.json"
     details_path = output_dir / "pair_diagnostics.csv"
     summary_path.write_text(
