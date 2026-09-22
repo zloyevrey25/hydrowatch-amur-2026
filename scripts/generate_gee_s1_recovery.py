@@ -34,8 +34,9 @@ function recover(windowName, dateText) {
   // Earth Engine mosaic gives the last image priority. Sort far-to-near so
   // pixels from the acquisition closest to the requested date win.
   var sar = candidates.sort('dateDistance', false).mosaic().clip(region);
-  var ratio = sar.select('VV').subtract(sar.select('VH')).rename('VV_VH_ratio');
-  var output = sar.addBands(ratio).toFloat().unmask(-9999);
+  // Training reads VV and VH directly; omitting the derived ratio makes the
+  // emergency export one third smaller without changing model inputs.
+  var output = sar.toFloat().unmask(-9999);
   Export.image.toDrive({
     image: output,
     description: pair.pairId + '_S1_' + windowName + '_recovery',
