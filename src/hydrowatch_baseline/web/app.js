@@ -1,6 +1,8 @@
 const colors={water_pre:'#5268ff',water_peak:'#27c9e3',flood:'#ff4d6d',receded:'#ffb642'};
 const labels={water_pre:'Вода до паводка',water_peak:'Вода на пике',flood:'Новое затопление',receded:'Убыль воды'};
 const map=L.map('map',{zoomControl:true,attributionControl:false}).setView([51.1,128.2],7);
+const mapElement=document.querySelector('#map');let resizeFrame;
+new ResizeObserver(()=>{cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(()=>map.invalidateSize({pan:false}));}).observe(mapElement);
 const groups=Object.fromEntries(Object.keys(colors).map(key=>[key,L.layerGroup().addTo(map)]));
 const pairSelect=document.querySelector('#pair');const statusEl=document.querySelector('#status');let pairs=[];
 function formatDate(value){if(!value)return'нет данных';return new Date(`${value}T00:00:00`).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});}
