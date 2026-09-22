@@ -211,9 +211,13 @@ def train_multimodal(
         manifest, validation_event, seed, training_config["negatives_per_positive"]
     )
     if max_train_patches is not None:
-        train_rows = train_rows.head(max_train_patches).copy()
+        train_rows = train_rows.sample(
+            n=min(max_train_patches, len(train_rows)), random_state=seed
+        ).reset_index(drop=True)
     if max_validation_patches is not None:
-        validation_rows = validation_rows.head(max_validation_patches).copy()
+        validation_rows = validation_rows.sample(
+            n=min(max_validation_patches, len(validation_rows)), random_state=seed
+        ).reset_index(drop=True)
     if train_rows.empty or validation_rows.empty:
         raise ValueError("Training and validation patch selections must both be non-empty")
     assert_imagery_ready(data_root, pd.concat([train_rows, validation_rows]))
