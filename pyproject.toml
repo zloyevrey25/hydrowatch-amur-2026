@@ -12,6 +12,8 @@ dependencies = [
   "pandas>=2.2,<3",
   "rasterio>=1.4,<2",
   "scipy>=1.13,<2",
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.34,<1",
   "tensorflow>=2.16,<2.19; python_version < '3.13'",
   "tensorflow>=2.20,<2.22; python_version >= '3.13'",
 ]
@@ -21,3 +23,6 @@ hydrowatch-baseline = "hydrowatch_baseline.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+hydrowatch_baseline = ["web/**/*"]

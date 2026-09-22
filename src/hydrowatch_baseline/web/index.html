@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>HydroWatch Amur</title>
+  <link rel="stylesheet" href="/vendor/leaflet.css">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header>
+    <div>
+      <p class="eyebrow">КОСМОХАКАТОН 2026</p>
+      <h1>HydroWatch Amur</h1>
+      <p>Мониторинг воды и новых зон затопления по Sentinel‑1 и Sentinel‑2</p>
+    </div>
+    <span id="status" class="status">Готов к анализу</span>
+  </header>
+  <main>
+    <aside>
+      <label for="pair">Территория и событие</label>
+      <select id="pair"></select>
+      <button id="analyze">Рассчитать отчёт</button>
+      <section id="summary" class="summary hidden">
+        <h2>Площади</h2>
+        <div class="metrics">
+          <article><span>Вода до</span><strong id="pre">—</strong></article>
+          <article><span>Вода на пике</span><strong id="peak">—</strong></article>
+          <article class="danger"><span>Новое затопление</span><strong id="flood">—</strong></article>
+          <article><span>Убыль воды</span><strong id="receded">—</strong></article>
+        </div>
+        <div class="downloads">
+          <a id="json" download>JSON-отчёт</a>
+          <a id="csv" download>CSV-отчёт</a>
+          <a id="geojson" download>GeoJSON-контуры</a>
+        </div>
+      </section>
+      <section class="legend">
+        <h2>Слои</h2>
+        <label><input type="checkbox" data-layer="water_pre" checked><i class="pre"></i> Вода до</label>
+        <label><input type="checkbox" data-layer="water_peak" checked><i class="peak"></i> Вода на пике</label>
+        <label><input type="checkbox" data-layer="flood" checked><i class="flood"></i> Новое затопление</label>
+        <label><input type="checkbox" data-layer="receded" checked><i class="receded"></i> Убыль воды</label>
+      </section>
+    </aside>
+    <div id="map"></div>
+  </main>
+  <script src="/vendor/leaflet.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

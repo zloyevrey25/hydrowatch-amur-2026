@@ -7,7 +7,7 @@ import pandas as pd
 import rasterio
 from rasterio.transform import from_origin
 
-from hydrowatch_baseline.dataset import build_event_folds, build_patch_manifest
+from hydrowatch_baseline.dataset import audit_dataset, build_event_folds, build_patch_manifest
 
 
 class DatasetPreparationTests(unittest.TestCase):
@@ -34,6 +34,7 @@ class DatasetPreparationTests(unittest.TestCase):
                 "event_id": event,
                 "event_kind": "rain_flood",
                 "aoi_id": "aoi",
+                "rasters_dir": f"rasters/{pair_id}",
                 "reference_mask": str(path.relative_to(self.root)),
             })
         pd.DataFrame(pairs).to_csv(self.root / "pairs.csv", index=False)
@@ -60,6 +61,31 @@ class DatasetPreparationTests(unittest.TestCase):
         self.assertEqual(first["flood_fraction"], 1.0)
         self.assertEqual(first["water_pre_fraction"], 1.0)
         self.assertEqual(first["water_peak_fraction"], 1.0)
+
+    def test_audit_rejects_almost_empty_sentinel_exports(self):
+        pairs = pd.read_csv(self.root / "pairs.csv")
+        profile = {
+            "driver": "GTiff", "width": 5, "height": 5, "dtype": "float32",
+            "crs": "EPSG:32652", "transform": from_origin(0, 50, 10, 10), "nodata": -9999.0,
+        }
+        for index, pair in pairs.iterrows():
+            directory = self.root / pair["rasters_dir"]
+            directory.mkdir(parents=True)
+            with rasterio.open(directory / "AUX_terrain_gsw.tif", "w", count=6, **profile) as target:
+                target.write(np.zeros((6, 5, 5), dtype="float32"))
+            values = np.full((3, 5, 5), -15.0, dtype="float32")
+            if index == 0:
+                values[:] = -9999.0
+                values[:, 0, 0] = -15.0
+            for window in ("pre", "peak"):
+                with rasterio.open(directory / f"S1_{window}_2021-01-01.tif", "w", count=3, **profile) as target:
+                    target.write(values)
+
+        audit = audit_dataset(self.root).set_index("pair_id")
+
+        self.assertFalse(bool(audit.loc["event_a__aoi", "s1_ready"]))
+        self.assertIn("coverage", audit.loc["event_a__aoi", "problems"])
+        self.assertTrue(bool(audit.loc["event_b__aoi", "s1_ready"]))
 
 
 if __name__ == "__main__":

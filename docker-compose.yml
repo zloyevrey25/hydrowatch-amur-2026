@@ -1,0 +1,13 @@
+services:
+  hydrowatch:
+    build: .
+    command: ["uvicorn", "hydrowatch_baseline.service:app", "--host", "0.0.0.0", "--port", "8000"]
+    entrypoint: []
+    environment:
+      HYDROWATCH_DATA_ROOT: /workspace/data/hydrowatch_amur
+      HYDROWATCH_RESULTS_ROOT: /workspace/outputs/final
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    ports:
+      - "8000:8000"

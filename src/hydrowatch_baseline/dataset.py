@@ -119,6 +119,31 @@ def audit_dataset(data_root: Path) -> pd.DataFrame:
             problems.append("s1_pre_missing")
         if s1_peak is None:
             problems.append("s1_peak_missing")
+
+        s1_coverage: dict[str, float] = {"pre": 0.0, "peak": 0.0}
+        for window_name, path in (("pre", s1_pre), ("peak", s1_peak)):
+            if path is None or not reference.exists():
+                continue
+            with rasterio.open(path) as source, rasterio.open(reference) as reference_source:
+                if source.count < 2:
+                    problems.append(f"s1_{window_name}_bands={source.count}")
+                    continue
+                for grid_name in ("width", "height", "crs", "transform"):
+                    if getattr(source, grid_name) != getattr(reference_source, grid_name):
+                        problems.append(f"s1_{window_name}_{grid_name}_mismatch")
+                sample_height = min(512, source.height)
+                sample_width = min(512, source.width)
+                sample = source.read(
+                    [1, 2], out_shape=(2, sample_height, sample_width),
+                    out_dtype="float32", masked=True,
+                ).filled(np.nan)
+                coverage = float(np.isfinite(sample).mean())
+                s1_coverage[window_name] = coverage
+                if coverage < 0.8:
+                    problems.append(f"s1_{window_name}_coverage={coverage:.4f}")
+                values = sample[np.isfinite(sample)]
+                if values.size and (np.nanpercentile(values, 1) < -80 or np.nanpercentile(values, 99) > 30):
+                    problems.append(f"s1_{window_name}_range_implausible")
         metadata_has_optical = pd.notna(getattr(pair, "sensor_optical", np.nan))
         optical_ready = s2_pre is not None and s2_peak is not None
         if metadata_has_optical and not optical_ready:
@@ -135,7 +160,14 @@ def audit_dataset(data_root: Path) -> pd.DataFrame:
             "crs": crs,
             "resolution_m": resolution_m,
             "metadata_has_optical": metadata_has_optical,
-            "s1_ready": s1_pre is not None and s1_peak is not None,
+            "s1_valid_fraction_pre": s1_coverage["pre"],
+            "s1_valid_fraction_peak": s1_coverage["peak"],
+            "s1_coverage_min": min(s1_coverage.values()),
+            "s1_ready": (
+                s1_pre is not None and s1_peak is not None
+                and min(s1_coverage.values()) >= 0.8
+                and not any(problem.startswith("s1_") for problem in problems)
+            ),
             "s2_ready": optical_ready,
             **areas,
             "status": "ready" if not problems else "incomplete",
@@ -218,6 +250,10 @@ def write_preparation_manifests(
     audit = audit_dataset(data_root)
     folds = build_event_folds(data_root)
     patches = build_patch_manifest(data_root, patch_size, stride)
+    # Never let an almost-empty Sentinel export silently enter training. Keep
+    # the pair in the audit so it remains visible and can be re-exported.
+    usable_pair_ids = set(audit.loc[audit["s1_ready"], "pair_id"])
+    patches = patches[patches["pair_id"].isin(usable_pair_ids)].reset_index(drop=True)
     audit.to_csv(outputs["audit"], index=False)
     folds.to_csv(outputs["folds"], index=False)
     patches.to_csv(outputs["patches"], index=False)
