@@ -234,6 +234,9 @@ def train_multimodal(
             "train_patches": len(train_rows),
             "validation_patches": len(validation_rows),
             "mixed_precision_policy": tf.keras.mixed_precision.global_policy().name,
+            "tensorflow_version": tf.__version__,
+            "numpy_version": np.__version__,
+            "training": training_config,
         }, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
@@ -277,4 +280,7 @@ def train_multimodal(
         model.load_weights(best_weights)
     final_weights = output_dir / "final.weights.h5"
     model.save_weights(final_weights)
+    # final.weights.h5 contains the restored best checkpoint. Keeping the
+    # temporary checkpoint as well doubles every experiment's disk usage.
+    best_weights.unlink(missing_ok=True)
     return final_weights

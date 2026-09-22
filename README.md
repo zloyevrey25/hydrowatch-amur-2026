@@ -178,6 +178,9 @@ a lower learning rate. The loss combines binary cross-entropy and Dice, gives ex
 weight to the rare flood channel, balances empty patches, and randomly removes the
 optical inputs in 35% of training patches. All these values are explicit in
 `configs/sturm_baseline.toml`.
+Each run keeps one `final.weights.h5` containing the best validation checkpoint,
+plus the full training history and reproducibility metadata. The temporary duplicate
+checkpoint is removed automatically to keep Colab and Drive storage bounded.
 
 ## Event-level experiments
 
