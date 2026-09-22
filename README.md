@@ -143,6 +143,17 @@ This creates:
 - `patch_manifest.csv` with label fractions for each 128 x 128 patch.
 - `dataset_summary.json` with dataset readiness and class-balance statistics.
 
+Generate reusable EDA tables and a Markdown section for the research report:
+
+```bash
+hydrowatch-baseline eda \
+  --preparation-dir outputs/preparation \
+  --output-dir outputs/eda
+```
+
+The command records sensor availability, reference areas by event and patch-level
+class imbalance without loading the full Sentinel rasters into memory.
+
 Splitting by event prevents patches from the same flood and AOI leaking into both
 training and validation. Baseline control pairs are excluded from training and are
 kept in every validation fold to measure false flood detections. Empty patches are

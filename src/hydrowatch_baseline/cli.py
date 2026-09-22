@@ -32,6 +32,10 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--patch-size", type=int, default=128)
     prepare.add_argument("--stride", type=int, default=128)
 
+    eda = subcommands.add_parser("eda", help="Summarize readiness and class imbalance")
+    eda.add_argument("--preparation-dir", type=Path, default=Path("outputs/preparation"))
+    eda.add_argument("--output-dir", type=Path, default=Path("outputs/eda"))
+
     validate = subcommands.add_parser(
         "validate-package", help="Validate submission.csv and all mandatory flood masks"
     )
@@ -62,6 +66,13 @@ def main() -> None:
         outputs = write_preparation_manifests(
             args.data_root, args.output_dir, args.patch_size, args.stride
         )
+        print(json.dumps({name: str(path) for name, path in outputs.items()}, indent=2))
+        return
+
+    if args.command == "eda":
+        from .eda import write_eda_report
+
+        outputs = write_eda_report(args.preparation_dir, args.output_dir)
         print(json.dumps({name: str(path) for name, path in outputs.items()}, indent=2))
         return
 
