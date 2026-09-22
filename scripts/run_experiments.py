@@ -66,7 +66,7 @@ def main() -> None:
 
     from hydrowatch_baseline.metric import score_submission, write_submission_report
     from hydrowatch_baseline.pipeline import run_dataset
-    from hydrowatch_baseline.sturm import load_multimodal_model
+    from hydrowatch_baseline.sturm import build_multimodal_model
     from hydrowatch_baseline.training import train_multimodal
 
     base_config = load_config(args.config)
@@ -94,7 +94,7 @@ def main() -> None:
                     config, experiment.validation_event, args.warmup_epochs,
                     args.finetune_epochs, args.batch_size, args.seed,
                 )
-            model = load_multimodal_model(repository, source_weights, config["sturm"]["patch_size"])
+            model = build_multimodal_model(repository, config["sturm"]["patch_size"])
             model.load_weights(final_weights)
             fold_pair_ids = fold_score_pair_ids(args.data_root, experiment.validation_event)
             run_dataset(args.data_root, output_dir, model, config, pair_ids=fold_pair_ids)

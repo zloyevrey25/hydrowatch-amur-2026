@@ -138,17 +138,9 @@ def _transfer_sturm_weights(source, feature_backbone, water_head, flood_head) ->
     flood_head.set_weights([flood_kernel, flood_bias])
 
 
-def load_multimodal_model(repository: Path, weights: Path, patch_size: int):
-    if not weights.exists():
-        raise FileNotFoundError(
-            f"STURM weights not found at {weights}. Run scripts/download_sturm_s1_weights.py first."
-        )
+def build_multimodal_model(repository: Path, patch_size: int):
+    """Build the final architecture without loading the large STURM checkpoint."""
     unet_model = _import_sturm_model(repository)
-    source = unet_model(
-        n_classes=2, tile_width=patch_size, tile_height=patch_size, n_bands=2,
-        n_blocks=6, class_weight_list=[1, 1], normalize_inputs=False,
-    )
-    source.load_weights(weights)
     import tensorflow as tf
 
     # Each date is processed independently by the same four-channel branch:
@@ -183,7 +175,25 @@ def load_multimodal_model(repository: Path, weights: Path, patch_size: int):
     )
     flood = flood_head(flood_features)
     outputs = tf.keras.layers.Concatenate(name="hydro_masks")([water_pre, water_peak, flood])
-    target = tf.keras.Model(inputs, outputs, name="sturm_multimodal_8ch")
+    return tf.keras.Model(inputs, outputs, name="sturm_multimodal_8ch")
+
+
+def load_multimodal_model(repository: Path, weights: Path, patch_size: int):
+    """Build and warm-start a training model from the public S1 checkpoint."""
+    if not weights.exists():
+        raise FileNotFoundError(
+            f"STURM weights not found at {weights}. Run scripts/download_sturm_s1_weights.py first."
+        )
+    unet_model = _import_sturm_model(repository)
+    source = unet_model(
+        n_classes=2, tile_width=patch_size, tile_height=patch_size, n_bands=2,
+        n_blocks=6, class_weight_list=[1, 1], normalize_inputs=False,
+    )
+    source.load_weights(weights)
+    target = build_multimodal_model(repository, patch_size)
+    feature_backbone = target.get_layer("shared_sturm_backbone")
+    water_head = target.get_layer("shared_water_logit")
+    flood_head = target.get_layer("flood")
     _transfer_sturm_weights(source, feature_backbone, water_head, flood_head)
     return target
 
