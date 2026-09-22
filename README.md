@@ -217,6 +217,58 @@ hydrowatch-baseline report \
 
 This creates `score_summary.json` and `pair_diagnostics.csv`.
 
+Validate the complete delivery package before submission. The command checks all
+pair identifiers and area constraints, then verifies that every binary `uint8`
+flood mask uses the reference grid and agrees with the CSV area within 2%:
+
+```bash
+hydrowatch-baseline validate-package \
+  --data-root data/hydrowatch_amur \
+  --package-dir outputs/final \
+  --report outputs/final/package_validation.json
+```
+
+Final inference requires `--trained-weights`. It builds the eight-channel
+architecture directly and does not load the original 1.8 GB STURM checkpoint.
+The checkpoint is needed only as the training warm start.
+
+## Interactive service
+
+Place the final `submission.csv` and prediction rasters in `outputs/final`, then
+start the offline FastAPI and Leaflet application:
+
+```bash
+docker compose up --build
+```
+
+Open `http://localhost:8000`. The interface provides the prepared territories,
+four switchable vector layers and downloads for the JSON/CSV report and GeoJSON
+contours. The REST API is available at:
+
+- `GET /api/v1/pairs`;
+- `POST /api/v1/analyze` with a `pair_id`, bbox or GeoJSON geometry plus dates;
+- `GET /api/v1/results/{id}/report` (add `?format=csv` for CSV);
+- `GET /api/v1/results/{id}/contours.geojson`;
+- `GET /api/v1/results/{id}/layers/{water_pre|water_peak|flood|receded}`.
+
+The service uses only local case data, predictions and bundled Leaflet assets.
+If aligned ESA WorldCover rasters are present under `data/hydrowatch_amur/landcover`,
+the report also calculates the flooded area by land-cover class.
+
+## Incomplete Sentinel recovery
+
+Dataset preparation samples valid Sentinel-1 coverage and excludes any pair below
+80% from the training manifest. The pair remains visible as `incomplete` in
+`data_audit.csv`, so an empty Earth Engine export cannot silently enter training.
+Generate recovery tasks that search nearby acquisitions without a fixed orbit:
+
+```bash
+python scripts/generate_gee_s1_recovery.py \
+  --data-root data/hydrowatch_amur \
+  --pair-id flood_2021_06_amur__poyarkovo \
+  --output outputs/gee_reexport_poyarkovo.js
+```
+
 The STURM normalization and fusion settings are deliberately explicit in
 `configs/sturm_baseline.toml`. They are baseline assumptions and must be selected
 using event-level validation, not fitted directly to every open reference mask.

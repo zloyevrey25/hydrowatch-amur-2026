@@ -33,6 +33,7 @@ ndvi_band = 7
 awei_band = 8
 
 [training]
+mixed_precision = true
 optical_dropout = 0.35
 negatives_per_positive = 2.0
 warmup_learning_rate = 0.001

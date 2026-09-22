@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import math
 
 import numpy as np
@@ -196,13 +197,25 @@ def train_multimodal(
     finetune_epochs: int = 12,
     batch_size: int = 2,
     seed: int = 42,
+    max_train_patches: int | None = None,
+    max_validation_patches: int | None = None,
 ) -> Path:
     tf.keras.utils.set_random_seed(seed)
-    manifest = pd.read_csv(manifest_path)
     training_config = config["training"]
+    if training_config.get("mixed_precision", False) and tf.config.list_physical_devices("GPU"):
+        tf.keras.mixed_precision.set_global_policy("mixed_float16")
+    else:
+        tf.keras.mixed_precision.set_global_policy("float32")
+    manifest = pd.read_csv(manifest_path)
     train_rows, validation_rows = select_training_rows(
         manifest, validation_event, seed, training_config["negatives_per_positive"]
     )
+    if max_train_patches is not None:
+        train_rows = train_rows.head(max_train_patches).copy()
+    if max_validation_patches is not None:
+        validation_rows = validation_rows.head(max_validation_patches).copy()
+    if train_rows.empty or validation_rows.empty:
+        raise ValueError("Training and validation patch selections must both be non-empty")
     assert_imagery_ready(data_root, pd.concat([train_rows, validation_rows]))
     train_sequence = PatchSequence(
         data_root, train_rows, config, batch_size, True,
@@ -213,6 +226,17 @@ def train_multimodal(
     )
     model = load_multimodal_model(repository, source_weights, config["sturm"]["patch_size"])
     output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "run_config.json").write_text(
+        json.dumps({
+            "validation_event": validation_event,
+            "seed": seed,
+            "batch_size": batch_size,
+            "train_patches": len(train_rows),
+            "validation_patches": len(validation_rows),
+            "mixed_precision_policy": tf.keras.mixed_precision.global_policy().name,
+        }, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     history_path = output_dir / "training_history.csv"
     history_path.unlink(missing_ok=True)
     best_weights = output_dir / "best.weights.h5"

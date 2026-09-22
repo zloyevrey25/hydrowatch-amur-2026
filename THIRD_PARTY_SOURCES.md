@@ -29,3 +29,10 @@ The generated export script filters Sentinel-1 by the supplied acquisition date,
 orbit direction and relative orbit. Sentinel-2 invalid pixels are masked with SCL.
 No operational flood-mapping product is used to form predictions for evaluated
 pairs.
+# Leaflet
+
+- Source: https://leafletjs.com/
+- Version: 1.9.4
+- License: BSD-2-Clause (bundled at
+  `src/hydrowatch_baseline/web/vendor/LEAFLET_LICENSE`)
+- Use: offline interactive map and GeoJSON layer controls.

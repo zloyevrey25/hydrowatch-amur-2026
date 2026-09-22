@@ -25,4 +25,4 @@ hydrowatch-baseline = "hydrowatch_baseline.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-hydrowatch_baseline = ["web/**/*"]
+hydrowatch_baseline = ["web/*.html", "web/*.css", "web/*.js", "web/vendor/*"]
