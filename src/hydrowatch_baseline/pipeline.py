@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 import glob
+import json
 
 import numpy as np
 import pandas as pd
@@ -98,9 +99,10 @@ def derive_masks(probabilities: np.ndarray, aux: np.ndarray, config: dict):
     flood = temporal_flood & learned_flood
     if not flood.any() and temporal_flood.any():
         flood = temporal_flood
-    return water_pre, water_peak, remove_small_components(
-        flood, hydrology["minimum_component_pixels"]
-    )
+    flood = remove_small_components(flood, hydrology["minimum_component_pixels"])
+    receded = water_pre & ~water_peak & ~permanent
+    receded = remove_small_components(receded, hydrology["minimum_component_pixels"])
+    return water_pre, water_peak, flood, receded
 
 
 def pixel_area_ha(profile: dict) -> float:
@@ -160,11 +162,12 @@ def run_dataset(
             model_input, model, sturm["patch_size"], sturm["stride"], sturm["batch_size"]
         )
         aux = read_aux_on_grid(directory / "AUX_terrain_gsw.tif", profile)
-        water_pre, water_peak, flood = derive_masks(probabilities, aux, config)
+        water_pre, water_peak, flood, receded = derive_masks(probabilities, aux, config)
         prediction_dir = output_dir / "predictions"
         write_mask(prediction_dir / f"{pair.pair_id}_water_pre.tif", water_pre, profile)
         write_mask(prediction_dir / f"{pair.pair_id}_water_peak.tif", water_peak, profile)
         write_mask(prediction_dir / f"{pair.pair_id}_flood.tif", flood, profile)
+        write_mask(prediction_dir / f"{pair.pair_id}_receded.tif", receded, profile)
         area = pixel_area_ha(profile)
         rows.append({
             "pair_id": pair.pair_id,
@@ -175,4 +178,17 @@ def run_dataset(
     submission = pd.DataFrame(rows)
     output_dir.mkdir(parents=True, exist_ok=True)
     submission.to_csv(output_dir / "submission.csv", index=False)
+    (output_dir / "run_metadata.json").write_text(
+        json.dumps({
+            "model": "sturm_multimodal_8ch",
+            "input_channels": [
+                "VV_pre", "VH_pre", "VV_peak", "VH_peak",
+                "NDWI_pre", "MNDWI_pre", "NDWI_peak", "MNDWI_peak",
+            ],
+            "output_masks": ["water_pre", "water_peak", "flood", "receded"],
+            "pairs": list(submission["pair_id"]),
+            "config": config,
+        }, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     return submission

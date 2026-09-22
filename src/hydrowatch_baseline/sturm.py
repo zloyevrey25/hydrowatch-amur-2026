@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import math
 import sys
+import types
 
 import numpy as np
 
@@ -77,6 +78,10 @@ def _import_sturm_model(repository: Path):
         raise FileNotFoundError(f"STURM model code not found at {arch_dir}")
     sys.path.insert(0, str(arch_dir))
     try:
+        # The public STURM model imports tensorflow_io but never uses it.  The
+        # package has no Python 3.13 wheel, so provide an empty compatibility
+        # module instead of making Colab install an unused binary dependency.
+        sys.modules.setdefault("tensorflow_io", types.ModuleType("tensorflow_io"))
         from model import unet_model
     finally:
         sys.path.pop(0)

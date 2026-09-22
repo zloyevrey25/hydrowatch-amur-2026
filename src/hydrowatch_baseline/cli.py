@@ -15,7 +15,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--data-root", type=Path, required=True)
     run.add_argument("--output-dir", type=Path, default=Path("outputs/sturm_baseline"))
     run.add_argument("--config", type=Path, default=Path("configs/sturm_baseline.toml"))
-    run.add_argument("--trained-weights", type=Path)
+    run.add_argument("--trained-weights", type=Path, required=True)
 
     score = subcommands.add_parser("score", help="Calculate the official local score")
     score.add_argument("--data-root", type=Path, required=True)
@@ -31,6 +31,13 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--output-dir", type=Path, default=Path("outputs/preparation"))
     prepare.add_argument("--patch-size", type=int, default=128)
     prepare.add_argument("--stride", type=int, default=128)
+
+    validate = subcommands.add_parser(
+        "validate-package", help="Validate submission.csv and all mandatory flood masks"
+    )
+    validate.add_argument("--data-root", type=Path, required=True)
+    validate.add_argument("--package-dir", type=Path, required=True)
+    validate.add_argument("--report", type=Path)
     return parser
 
 
@@ -58,6 +65,17 @@ def main() -> None:
         print(json.dumps({name: str(path) for name, path in outputs.items()}, indent=2))
         return
 
+    if args.command == "validate-package":
+        from .package import validate_submission_package, write_package_validation
+
+        result = validate_submission_package(args.data_root, args.package_dir)
+        if args.report is not None:
+            write_package_validation(result, args.report)
+        print(json.dumps(result.as_dict(), ensure_ascii=False, indent=2))
+        if not result.valid:
+            raise SystemExit(1)
+        return
+
     config = load_config(args.config)
     project_root = Path.cwd()
     sturm = config["sturm"]
@@ -67,8 +85,7 @@ def main() -> None:
     from .pipeline import run_dataset
 
     model = load_multimodal_model(repository, weights, sturm["patch_size"])
-    if args.trained_weights is not None:
-        model.load_weights(args.trained_weights)
+    model.load_weights(args.trained_weights)
     submission = run_dataset(args.data_root, args.output_dir, model, config)
     print(f"Created {args.output_dir / 'submission.csv'} with {len(submission)} pairs")
 
