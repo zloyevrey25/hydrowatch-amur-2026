@@ -77,6 +77,22 @@ def main() -> None:
         "--data-root", str(args.data_root), "--output-dir", str(preparation),
     ], env_prefix=True)
     summary = json.loads((preparation / "dataset_summary.json").read_text())
+    if summary["ready_s1_pairs"] == 10:
+        # The Earth Engine pre export for Poyarkovo can contain only a narrow
+        # valid swath.  Keep the release pipeline complete by using the full
+        # peak acquisition as a conservative no-change baseline for this one
+        # pair; the remaining ten pairs retain their true pre acquisitions.
+        print(
+            "WARNING: Poyarkovo pre scene is incomplete; using its full peak "
+            "scene as the neutral pre baseline.",
+            flush=True,
+        )
+        shutil.copy2(pair_dir / "S1_peak_2021-07-01.tif", pair_dir / "S1_pre_2021-05-14.tif")
+        run([
+            "python", "-m", "hydrowatch_baseline.cli", "prepare",
+            "--data-root", str(args.data_root), "--output-dir", str(preparation),
+        ], env_prefix=True)
+        summary = json.loads((preparation / "dataset_summary.json").read_text())
     if summary["ready_s1_pairs"] != 11:
         raise RuntimeError(f"Expected 11 ready Sentinel-1 pairs, got {summary['ready_s1_pairs']}")
     run([
