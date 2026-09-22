@@ -1,6 +1,15 @@
 const colors={water_pre:'#5268ff',water_peak:'#27c9e3',flood:'#ff4d6d',receded:'#ffb642'};
 const labels={water_pre:'Вода до паводка',water_peak:'Вода на пике',flood:'Новое затопление',receded:'Убыль воды'};
-const map=L.map('map',{zoomControl:true,attributionControl:false}).setView([51.1,128.2],7);
+const osmBase=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+  maxZoom:19,
+  attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+});
+const satelliteBase=L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
+  maxZoom:19,
+  attribution:'Tiles &copy; Esri &mdash; Esri, Maxar, Earthstar Geographics, GIS User Community'
+});
+const map=L.map('map',{zoomControl:true,attributionControl:true,layers:[satelliteBase]}).setView([51.1,128.2],7);
+L.control.layers({'Спутник':satelliteBase,'OpenStreetMap':osmBase},null,{collapsed:false,position:'topright'}).addTo(map);
 const mapElement=document.querySelector('#map');let resizeFrame;
 new ResizeObserver(()=>{cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(()=>map.invalidateSize({pan:false}));}).observe(mapElement);
 const groups=Object.fromEntries(Object.keys(colors).map(key=>[key,L.layerGroup().addTo(map)]));
