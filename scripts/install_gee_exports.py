@@ -2,10 +2,36 @@ from __future__ import annotations
 
 from pathlib import Path
 import argparse
+import re
 import shutil
 
 import pandas as pd
 import rasterio
+
+
+DRIVE_DUPLICATE_SUFFIX = re.compile(r"\s*\(\d+\)$")
+
+
+def canonical_export_name(path: Path) -> str:
+    """Remove the suffix Google Drive adds when two exports share a name."""
+    return f"{DRIVE_DUPLICATE_SUFFIX.sub('', path.stem)}{path.suffix.lower()}"
+
+
+def preferred_exports(source_dir: Path) -> list[tuple[str, Path]]:
+    """Return one file per logical export, preferring the largest duplicate."""
+    grouped: dict[str, list[Path]] = {}
+    for source in source_dir.glob("*.tif"):
+        grouped.setdefault(canonical_export_name(source), []).append(source)
+    selected: list[tuple[str, Path]] = []
+    for name, candidates in sorted(grouped.items()):
+        preferred = max(candidates, key=lambda path: (path.stat().st_size, path.stat().st_mtime))
+        if len(candidates) > 1:
+            print(
+                f"Duplicate export {name}: selected {preferred.name} "
+                f"({preferred.stat().st_size / 1_000_000:.1f} MB)"
+            )
+        selected.append((name, preferred))
+    return selected
 
 
 def same_grid(reference: Path, candidate: Path) -> tuple[bool, str]:
@@ -31,13 +57,13 @@ def main() -> None:
     pairs = pd.read_csv(args.data_root / "pairs.csv").set_index("pair_id")
     installed = 0
     rejected: list[str] = []
-    for source in sorted(args.source_dir.glob("*.tif")):
-        matches = [pair_id for pair_id in pairs.index if source.name.startswith(f"{pair_id}__")]
+    for canonical_name, source in preferred_exports(args.source_dir):
+        matches = [pair_id for pair_id in pairs.index if canonical_name.startswith(f"{pair_id}__")]
         if len(matches) != 1:
             rejected.append(f"{source.name}: cannot determine pair")
             continue
         pair_id = matches[0]
-        filename = source.name[len(pair_id) + 2 :]
+        filename = canonical_name[len(pair_id) + 2 :]
         destination_dir = args.data_root / pairs.loc[pair_id, "rasters_dir"]
         destination = destination_dir / filename
         reference = args.data_root / pairs.loc[pair_id, "reference_mask"]

@@ -3,49 +3,65 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>HydroWatch Amur</title>
+  <meta name="theme-color" content="#f4f2ff">
+  <title>HydroWatch Amur — мониторинг паводков</title>
   <link rel="stylesheet" href="/vendor/leaflet.css">
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-  <header>
-    <div>
-      <p class="eyebrow">КОСМОХАКАТОН 2026</p>
-      <h1>HydroWatch Amur</h1>
-      <p>Мониторинг воды и новых зон затопления по Sentinel‑1 и Sentinel‑2</p>
-    </div>
-    <span id="status" class="status">Готов к анализу</span>
-  </header>
-  <main>
-    <aside>
-      <label for="pair">Территория и событие</label>
-      <select id="pair"></select>
-      <button id="analyze">Рассчитать отчёт</button>
-      <section id="summary" class="summary hidden">
-        <h2>Площади</h2>
-        <div class="metrics">
-          <article><span>Вода до</span><strong id="pre">—</strong></article>
-          <article><span>Вода на пике</span><strong id="peak">—</strong></article>
-          <article class="danger"><span>Новое затопление</span><strong id="flood">—</strong></article>
-          <article><span>Убыль воды</span><strong id="receded">—</strong></article>
-        </div>
-        <div class="downloads">
-          <a id="json" download>JSON-отчёт</a>
-          <a id="csv" download>CSV-отчёт</a>
-          <a id="geojson" download>GeoJSON-контуры</a>
-        </div>
+  <div class="page-glow glow-one"></div><div class="page-glow glow-two"></div>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="HydroWatch Amur"><span class="brand-mark" aria-hidden="true"><i></i></span><span>HYDRO<span>WATCH</span></span></a>
+      <div class="location-pill"><span></span> Амурская область</div><div class="topbar-spacer"></div>
+      <div class="project-pill">КОСМОХАКАТОН · 2026</div><button class="round-button" type="button" aria-label="О проекте">?</button>
+    </header>
+
+    <section class="hero">
+      <div>
+        <p class="kicker"><span class="spark">✦</span> СПУТНИКОВЫЙ МОНИТОРИНГ</p>
+        <h1>Вода под контролем.<br><span>Даже сквозь облака.</span></h1>
+        <p class="hero-copy">Сравниваем снимки Sentinel‑1 и Sentinel‑2, находим новые зоны затопления и считаем площадь воды в один клик.</p>
+      </div>
+      <div class="orbit" aria-hidden="true"><div class="planet"></div><div class="ring"></div><i class="moon moon-one"></i><i class="moon moon-two"></i></div>
+    </section>
+
+    <main class="workspace">
+      <aside class="control-panel card">
+        <div class="section-number">01</div><p class="kicker">ТЕРРИТОРИЯ И ПЕРИОД</p><h2>Запустить анализ</h2>
+        <label class="field-label" for="pair">Подготовленная спутниковая сцена</label>
+        <div class="select-wrap"><select id="pair" aria-label="Территория и событие"></select></div>
+        <div class="scene-info"><div><span>Территория</span><strong id="scene-place">—</strong></div><div><span>Период</span><strong id="scene-dates">—</strong></div></div>
+        <button id="analyze" class="primary-button" type="button"><span>Рассчитать отчёт</span><b>↗</b></button>
+        <div id="status" class="status"><i></i><span>Готов к анализу</span></div>
+        <section class="layer-section">
+          <p class="kicker">СЛОИ КАРТЫ</p>
+          <div class="layer-list">
+            <label><input type="checkbox" data-layer="water_pre" checked><i class="pre"></i><span>Вода до паводка</span><b>ДО</b></label>
+            <label><input type="checkbox" data-layer="water_peak" checked><i class="peak"></i><span>Вода на пике</span><b>ПИК</b></label>
+            <label><input type="checkbox" data-layer="flood" checked><i class="flood"></i><span>Новое затопление</span><b>+</b></label>
+            <label><input type="checkbox" data-layer="receded" checked><i class="receded"></i><span>Убыль воды</span><b>−</b></label>
+          </div>
+        </section>
+      </aside>
+
+      <section class="map-card card">
+        <div class="map-heading"><div><p class="kicker">02 · ИНТЕРАКТИВНАЯ КАРТА</p><h2 id="map-title">Амурская область</h2></div><span class="live-pill"><i></i> ДАННЫЕ ГОТОВЫ</span></div>
+        <div class="map-wrap"><div id="map"></div><div class="map-badge"><span>HYDROWATCH</span><small>Sentinel‑1 / Sentinel‑2</small></div></div>
       </section>
-      <section class="legend">
-        <h2>Слои</h2>
-        <label><input type="checkbox" data-layer="water_pre" checked><i class="pre"></i> Вода до</label>
-        <label><input type="checkbox" data-layer="water_peak" checked><i class="peak"></i> Вода на пике</label>
-        <label><input type="checkbox" data-layer="flood" checked><i class="flood"></i> Новое затопление</label>
-        <label><input type="checkbox" data-layer="receded" checked><i class="receded"></i> Убыль воды</label>
-      </section>
-    </aside>
-    <div id="map"></div>
-  </main>
-  <script src="/vendor/leaflet.js"></script>
-  <script src="/app.js"></script>
+    </main>
+
+    <section id="summary" class="results card hidden">
+      <div class="results-heading"><div><p class="kicker">03 · РЕЗУЛЬТАТ</p><h2>Сводка по территории</h2></div><div class="downloads"><a id="json" download>JSON <span>↓</span></a><a id="csv" download>CSV <span>↓</span></a><a id="geojson" download>GEOJSON <span>↓</span></a></div></div>
+      <div class="metrics">
+        <article><span class="metric-dot pre"></span><small>ВОДА ДО</small><strong id="pre">—</strong><p>базовая площадь</p></article>
+        <article><span class="metric-dot peak"></span><small>ВОДА НА ПИКЕ</small><strong id="peak">—</strong><p>максимальная площадь</p></article>
+        <article class="accent"><span class="metric-dot flood"></span><small>НОВОЕ ЗАТОПЛЕНИЕ</small><strong id="flood">—</strong><p id="flood-share">от площади территории</p></article>
+        <article><span class="metric-dot receded"></span><small>УБЫЛЬ ВОДЫ</small><strong id="receded">—</strong><p>освободившаяся площадь</p></article>
+      </div>
+    </section>
+    <footer><span>HYDROWATCH AMUR</span><p>Автоматический анализ паводков по спутниковым данным</p><b>КосмоХакатон · Благовещенск</b></footer>
+  </div>
+  <script src="/vendor/leaflet.js"></script><script src="/app.js"></script>
 </body>
 </html>

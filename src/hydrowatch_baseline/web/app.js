@@ -1,37 +1,13 @@
-const colors={water_pre:'#3377ff',water_peak:'#00a7c4',flood:'#ed4b3e',receded:'#f4a261'};
+const colors={water_pre:'#5268ff',water_peak:'#27c9e3',flood:'#ff4d6d',receded:'#ffb642'};
+const labels={water_pre:'Вода до паводка',water_peak:'Вода на пике',flood:'Новое затопление',receded:'Убыль воды'};
 const map=L.map('map',{zoomControl:true,attributionControl:false}).setView([51.1,128.2],7);
-const groups=Object.fromEntries(Object.keys(colors).map(k=>[k,L.layerGroup().addTo(map)]));
-const pairSelect=document.querySelector('#pair');
-const statusEl=document.querySelector('#status');
-
-async function loadPairs(){
-  const pairs=await fetch('/api/v1/pairs').then(r=>r.json());
-  pairSelect.innerHTML=pairs.map(p=>`<option value="${p.pair_id}">${p.aoi_name} · ${p.event_name}</option>`).join('');
-}
-function setStatus(text,busy=false){statusEl.textContent=text;document.querySelector('#analyze').disabled=busy;}
-function area(value){return `${Number(value).toLocaleString('ru-RU')} га`;}
-async function analyze(){
-  setStatus('Выполняется…',true);
-  try{
-    const response=await fetch('/api/v1/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pair_id:pairSelect.value})});
-    if(!response.ok)throw new Error((await response.json()).detail||'Ошибка анализа');
-    const report=await response.json();
-    document.querySelector('#pre').textContent=area(report.areas.water_pre_ha);
-    document.querySelector('#peak').textContent=area(report.areas.water_peak_ha);
-    document.querySelector('#flood').textContent=area(report.areas.flood_ha);
-    document.querySelector('#receded').textContent=area(report.areas.receded_ha);
-    document.querySelector('#summary').classList.remove('hidden');
-    document.querySelector('#json').href=`/api/v1/results/${report.id}/report`;
-    document.querySelector('#csv').href=`/api/v1/results/${report.id}/report?format=csv`;
-    document.querySelector('#geojson').href=report.contours;
-    const geojson=await fetch(report.contours).then(r=>r.json());
-    Object.values(groups).forEach(g=>g.clearLayers());
-    const layer=L.geoJSON(geojson,{style:f=>({color:colors[f.properties.type],weight:1,fillOpacity:.42}),onEachFeature:(f,l)=>l.bindPopup(`${f.properties.type}: ${f.properties.area_ha} га`)});
-    layer.eachLayer(item=>groups[item.feature.properties.type].addLayer(item));
-    const bounds=layer.getBounds();if(bounds.isValid())map.fitBounds(bounds.pad(.08));
-    setStatus('Отчёт готов');
-  }catch(error){setStatus(error.message);}
-}
-document.querySelector('#analyze').addEventListener('click',analyze);
-document.querySelectorAll('[data-layer]').forEach(input=>input.addEventListener('change',event=>{const group=groups[event.target.dataset.layer];event.target.checked?group.addTo(map):group.removeFrom(map);}));
-loadPairs().catch(error=>setStatus(error.message));
+const groups=Object.fromEntries(Object.keys(colors).map(key=>[key,L.layerGroup().addTo(map)]));
+const pairSelect=document.querySelector('#pair');const statusEl=document.querySelector('#status');let pairs=[];
+function formatDate(value){if(!value)return'нет данных';return new Date(`${value}T00:00:00`).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});}
+function selectedPair(){return pairs.find(pair=>pair.pair_id===pairSelect.value);}
+function updateScene(){const pair=selectedPair();if(!pair)return;document.querySelector('#scene-place').textContent=pair.aoi_name;document.querySelector('#scene-dates').textContent=`${formatDate(pair.date_pre_sar)} — ${formatDate(pair.date_peak_sar)}`;document.querySelector('#map-title').textContent=pair.aoi_name;}
+async function loadPairs(){pairs=await fetch('/api/v1/pairs').then(response=>{if(!response.ok)throw new Error('Не удалось получить список сцен');return response.json();});pairSelect.replaceChildren(...pairs.map(pair=>{const option=document.createElement('option');option.value=pair.pair_id;option.textContent=`${pair.aoi_name} · ${pair.event_name}`;return option;}));updateScene();}
+function setStatus(text,state='ready'){statusEl.querySelector('span').textContent=text;statusEl.className=`status ${state}`;document.querySelector('#analyze').disabled=state==='busy';}
+function area(value){return `${Number(value).toLocaleString('ru-RU',{maximumFractionDigits:2})} га`;}
+async function analyze(){setStatus('Считаем маски и площади…','busy');try{const response=await fetch('/api/v1/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pair_id:pairSelect.value})});if(!response.ok)throw new Error((await response.json()).detail||'Ошибка анализа');const report=await response.json();document.querySelector('#pre').textContent=area(report.areas.water_pre_ha);document.querySelector('#peak').textContent=area(report.areas.water_peak_ha);document.querySelector('#flood').textContent=area(report.areas.flood_ha);document.querySelector('#receded').textContent=area(report.areas.receded_ha);document.querySelector('#flood-share').textContent=`${(report.areas.flood_share_aoi*100).toLocaleString('ru-RU',{maximumFractionDigits:2})}% от площади территории`;document.querySelector('#summary').classList.remove('hidden');document.querySelector('#json').href=`/api/v1/results/${report.id}/report`;document.querySelector('#csv').href=`/api/v1/results/${report.id}/report?format=csv`;document.querySelector('#geojson').href=report.contours;const geojson=await fetch(report.contours).then(response=>response.json());Object.values(groups).forEach(group=>group.clearLayers());const layer=L.geoJSON(geojson,{style:feature=>({color:colors[feature.properties.type],weight:2,fillOpacity:.44}),onEachFeature:(feature,item)=>item.bindPopup(`<b>${labels[feature.properties.type]}</b><br>${area(feature.properties.area_ha)}`)});layer.eachLayer(item=>groups[item.feature.properties.type].addLayer(item));const bounds=layer.getBounds();if(bounds.isValid())map.fitBounds(bounds.pad(.08));document.querySelector('#summary').scrollIntoView({behavior:'smooth',block:'nearest'});setStatus('Отчёт готов','ready');}catch(error){setStatus(error.message,'error');}}
+pairSelect.addEventListener('change',updateScene);document.querySelector('#analyze').addEventListener('click',analyze);document.querySelectorAll('[data-layer]').forEach(input=>input.addEventListener('change',event=>{const group=groups[event.target.dataset.layer];event.target.checked?group.addTo(map):group.removeFrom(map);}));loadPairs().catch(error=>setStatus(error.message,'error'));
