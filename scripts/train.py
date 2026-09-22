@@ -18,6 +18,8 @@ def main() -> None:
     parser.add_argument("--finetune-epochs", type=int, default=12)
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--max-train-patches", type=int)
+    parser.add_argument("--max-validation-patches", type=int)
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -36,6 +38,8 @@ def main() -> None:
         args.finetune_epochs,
         args.batch_size,
         args.seed,
+        args.max_train_patches,
+        args.max_validation_patches,
     )
     print(f"Saved final weights to {final_weights}")
 

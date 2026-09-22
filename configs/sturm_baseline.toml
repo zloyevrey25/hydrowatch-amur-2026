@@ -19,6 +19,9 @@ vh_max_db = 10.0
 water_threshold = 0.50
 flood_threshold = 0.50
 missing_optical_value = -1.0
+# Experiment automation changes this list for optical ablations while preserving
+# the eight-channel input shape expected by the model.
+optical_features = ["ndwi", "mndwi"]
 
 [optical]
 # Band order in the case reference export. The multimodal baseline consumes
@@ -30,6 +33,7 @@ ndvi_band = 7
 awei_band = 8
 
 [training]
+mixed_precision = true
 optical_dropout = 0.35
 negatives_per_positive = 2.0
 warmup_learning_rate = 0.001

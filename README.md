@@ -44,6 +44,42 @@ source .venv/bin/activate
 pip install -e .
 ```
 
+## Container
+
+Build a portable CLI image without case data, model weights or generated outputs:
+
+```bash
+docker build -t hydrowatch-amur .
+docker run --rm hydrowatch-amur --help
+```
+
+Mount local assets when running a command. The paths in the container must match
+the repository configuration, so the project directory is mounted at `/workspace`:
+
+```bash
+docker run --rm \
+  -v "$PWD:/workspace" \
+  -w /workspace \
+  hydrowatch-amur prepare \
+  --data-root data/hydrowatch_amur \
+  --output-dir outputs/preparation
+```
+
+This keeps competition data, downloaded STURM weights and outputs outside the
+image. `run` and training additionally require the mounted
+`external/STURM-Flood` submodule and `models/sturm_s1` weights. To start
+training from the image, replace the CLI entry point:
+
+```bash
+docker run --rm \
+  -v "$PWD:/workspace" \
+  -w /workspace \
+  --entrypoint python \
+  hydrowatch-amur scripts/train.py \
+  --data-root data/hydrowatch_amur \
+  --validation-event flood_2021_06_amur
+```
+
 Download the public Sentinel-1 weights once during development:
 
 ```bash
@@ -107,9 +143,21 @@ This creates:
 - `patch_manifest.csv` with label fractions for each 128 x 128 patch.
 - `dataset_summary.json` with dataset readiness and class-balance statistics.
 
+Generate reusable EDA tables and a Markdown section for the research report:
+
+```bash
+hydrowatch-baseline eda \
+  --preparation-dir outputs/preparation \
+  --output-dir outputs/eda
+```
+
+The command records sensor availability, reference areas by event and patch-level
+class imbalance without loading the full Sentinel rasters into memory.
+
 Splitting by event prevents patches from the same flood and AOI leaking into both
-training and validation. Empty patches are downsampled during training, while all
-validation patches are retained.
+training and validation. Baseline control pairs are excluded from training and are
+kept in every validation fold to measure false flood detections. Empty patches are
+downsampled during training, while all validation patches are retained.
 
 ## Train
 
@@ -130,6 +178,29 @@ a lower learning rate. The loss combines binary cross-entropy and Dice, gives ex
 weight to the rare flood channel, balances empty patches, and randomly removes the
 optical inputs in 35% of training patches. All these values are explicit in
 `configs/sturm_baseline.toml`.
+Each run keeps one `final.weights.h5` containing the best validation checkpoint,
+plus the full training history and reproducibility metadata. The temporary duplicate
+checkpoint is removed automatically to keep Colab and Drive storage bounded.
+
+## Event-level experiments
+
+Run every leave-one-event-out fold for three comparable feature sets:
+
+```bash
+python scripts/run_experiments.py \
+  --data-root data/hydrowatch_amur \
+  --manifest outputs/preparation/patch_manifest.csv \
+  --output-root outputs/experiments
+```
+
+The default ablations are `sar-only`, `sar-ndwi`, and `sar-ndwi-mndwi`. Each
+run writes weights, predictions, `submission.csv`, a per-pair report, and an
+incrementally updated `experiment_summary.csv` / `experiment_summary.json`.
+Inference and scoring are limited to the held-out event and baseline controls for
+that fold. The summary takes validation IoU/F1 from the epoch with the lowest
+validation loss.
+Use `--dry-run` to inspect the fold-by-ablation plan without training; use
+`--resume` to reuse an existing `final.weights.h5`.
 
 ## Run
 
@@ -146,6 +217,79 @@ Calculate the official local metric against the supplied reference statistics:
 hydrowatch-baseline score \
   --data-root /path/to/hydrowatch_amur \
   --submission outputs/sturm_baseline/submission.csv
+```
+
+Write a reusable validation report with the same score components plus per-pair
+area errors and control-pair penalties:
+
+```bash
+hydrowatch-baseline report \
+  --data-root /path/to/hydrowatch_amur \
+  --submission outputs/sturm_baseline/submission.csv \
+  --output-dir outputs/report/fold_2
+```
+
+This creates `score_summary.json` and `pair_diagnostics.csv`.
+
+Validate the complete delivery package before submission. The command checks all
+pair identifiers and area constraints, then verifies that every binary `uint8`
+flood mask uses the reference grid and agrees with the CSV area within 2%:
+
+```bash
+hydrowatch-baseline validate-package \
+  --data-root data/hydrowatch_amur \
+  --package-dir outputs/final \
+  --report outputs/final/package_validation.json
+```
+
+Final inference requires `--trained-weights`. It builds the eight-channel
+architecture directly and does not load the original 1.8 GB STURM checkpoint.
+The checkpoint is needed only as the training warm start.
+
+For the time-boxed Colab MVP, after mounting Google Drive and cloning this
+repository, one command waits for the repaired Poyarkovo export and performs
+preparation, a bounded T4 training run, full inference, scoring, package
+validation and backup to Drive:
+
+```bash
+python scripts/run_colab_mvp.py
+```
+
+## Interactive service
+
+Place the final `submission.csv` and prediction rasters in `outputs/final`, then
+start the offline FastAPI and Leaflet application:
+
+```bash
+docker compose up --build
+```
+
+Open `http://localhost:8000`. The interface provides the prepared territories,
+four switchable vector layers and downloads for the JSON/CSV report and GeoJSON
+contours. The REST API is available at:
+
+- `GET /api/v1/pairs`;
+- `POST /api/v1/analyze` with a `pair_id`, bbox or GeoJSON geometry plus dates;
+- `GET /api/v1/results/{id}/report` (add `?format=csv` for CSV);
+- `GET /api/v1/results/{id}/contours.geojson`;
+- `GET /api/v1/results/{id}/layers/{water_pre|water_peak|flood|receded}`.
+
+The service uses only local case data, predictions and bundled Leaflet assets.
+If aligned ESA WorldCover rasters are present under `data/hydrowatch_amur/landcover`,
+the report also calculates the flooded area by land-cover class.
+
+## Incomplete Sentinel recovery
+
+Dataset preparation samples valid Sentinel-1 coverage and excludes any pair below
+80% from the training manifest. The pair remains visible as `incomplete` in
+`data_audit.csv`, so an empty Earth Engine export cannot silently enter training.
+Generate recovery tasks that search nearby acquisitions without a fixed orbit:
+
+```bash
+python scripts/generate_gee_s1_recovery.py \
+  --data-root data/hydrowatch_amur \
+  --pair-id flood_2021_06_amur__poyarkovo \
+  --output outputs/gee_reexport_poyarkovo.js
 ```
 
 The STURM normalization and fusion settings are deliberately explicit in

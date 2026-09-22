@@ -1,46 +1,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import math
 
 import numpy as np
 import pandas as pd
 import tensorflow as tf
 
+from .dataset import select_training_rows
 from .pipeline import find_single
 from .sturm import build_eight_channel_input, load_multimodal_model
-
-
-def select_training_rows(
-    manifest: pd.DataFrame,
-    validation_event: str,
-    seed: int = 42,
-    negatives_per_positive: float = 2.0,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Split by event and reduce the overwhelming number of empty patches."""
-    if validation_event not in set(manifest["event_id"]):
-        raise ValueError(f"Unknown validation event: {validation_event}")
-    validation = manifest[manifest["event_id"] == validation_event].copy()
-    candidates = manifest[manifest["event_id"] != validation_event].copy()
-    positive = candidates[candidates["flood_fraction"] > 0]
-    water_only = candidates[
-        (candidates["flood_fraction"] == 0)
-        & ((candidates["water_pre_fraction"] > 0) | (candidates["water_peak_fraction"] > 0))
-    ]
-    dry = candidates[
-        (candidates["flood_fraction"] == 0)
-        & (candidates["water_pre_fraction"] == 0)
-        & (candidates["water_peak_fraction"] == 0)
-    ]
-    target_negative = max(1, int(len(positive) * negatives_per_positive))
-    water_count = min(len(water_only), target_negative // 2)
-    dry_count = min(len(dry), target_negative - water_count)
-    selected = pd.concat([
-        positive,
-        water_only.sample(n=water_count, random_state=seed) if water_count else water_only.iloc[:0],
-        dry.sample(n=dry_count, random_state=seed) if dry_count else dry.iloc[:0],
-    ], ignore_index=True)
-    return selected.sample(frac=1.0, random_state=seed).reset_index(drop=True), validation
 
 
 def assert_imagery_ready(data_root: Path, rows: pd.DataFrame) -> None:
@@ -177,6 +147,18 @@ def channel_iou(channel: int, name: str):
     return metric
 
 
+def channel_f1(channel: int, name: str):
+    def metric(y_true, y_pred):
+        truth = tf.cast(y_true[..., channel] >= 0.5, tf.float32)
+        prediction = tf.cast(y_pred[..., channel] >= 0.5, tf.float32)
+        true_positive = tf.reduce_sum(truth * prediction)
+        denominator = tf.reduce_sum(truth) + tf.reduce_sum(prediction)
+        return (2.0 * true_positive + 1.0) / (denominator + 1.0)
+
+    metric.__name__ = name
+    return metric
+
+
 def compile_model(model, learning_rate: float, channel_weights) -> None:
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
@@ -185,6 +167,9 @@ def compile_model(model, learning_rate: float, channel_weights) -> None:
             channel_iou(0, "iou_water_pre"),
             channel_iou(1, "iou_water_peak"),
             channel_iou(2, "iou_flood"),
+            channel_f1(0, "f1_water_pre"),
+            channel_f1(1, "f1_water_peak"),
+            channel_f1(2, "f1_flood"),
         ],
     )
 
@@ -212,13 +197,29 @@ def train_multimodal(
     finetune_epochs: int = 12,
     batch_size: int = 2,
     seed: int = 42,
+    max_train_patches: int | None = None,
+    max_validation_patches: int | None = None,
 ) -> Path:
     tf.keras.utils.set_random_seed(seed)
-    manifest = pd.read_csv(manifest_path)
     training_config = config["training"]
+    if training_config.get("mixed_precision", False) and tf.config.list_physical_devices("GPU"):
+        tf.keras.mixed_precision.set_global_policy("mixed_float16")
+    else:
+        tf.keras.mixed_precision.set_global_policy("float32")
+    manifest = pd.read_csv(manifest_path)
     train_rows, validation_rows = select_training_rows(
         manifest, validation_event, seed, training_config["negatives_per_positive"]
     )
+    if max_train_patches is not None:
+        train_rows = train_rows.sample(
+            n=min(max_train_patches, len(train_rows)), random_state=seed
+        ).reset_index(drop=True)
+    if max_validation_patches is not None:
+        validation_rows = validation_rows.sample(
+            n=min(max_validation_patches, len(validation_rows)), random_state=seed
+        ).reset_index(drop=True)
+    if train_rows.empty or validation_rows.empty:
+        raise ValueError("Training and validation patch selections must both be non-empty")
     assert_imagery_ready(data_root, pd.concat([train_rows, validation_rows]))
     train_sequence = PatchSequence(
         data_root, train_rows, config, batch_size, True,
@@ -229,10 +230,28 @@ def train_multimodal(
     )
     model = load_multimodal_model(repository, source_weights, config["sturm"]["patch_size"])
     output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "run_config.json").write_text(
+        json.dumps({
+            "validation_event": validation_event,
+            "seed": seed,
+            "batch_size": batch_size,
+            "train_patches": len(train_rows),
+            "validation_patches": len(validation_rows),
+            "mixed_precision_policy": tf.keras.mixed_precision.global_policy().name,
+            "tensorflow_version": tf.__version__,
+            "numpy_version": np.__version__,
+            "training": training_config,
+        }, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    history_path = output_dir / "training_history.csv"
+    history_path.unlink(missing_ok=True)
+    best_weights = output_dir / "best.weights.h5"
+    best_weights.unlink(missing_ok=True)
     callbacks = [
-        tf.keras.callbacks.CSVLogger(output_dir / "training_history.csv", append=True),
+        tf.keras.callbacks.CSVLogger(history_path, append=True),
         tf.keras.callbacks.ModelCheckpoint(
-            output_dir / "best.weights.h5", monitor="val_loss", save_best_only=True,
+            best_weights, monitor="val_loss", save_best_only=True,
             save_weights_only=True,
         ),
         tf.keras.callbacks.EarlyStopping(
@@ -261,6 +280,11 @@ def train_multimodal(
         epochs=warmup_epochs + finetune_epochs,
         callbacks=callbacks,
     )
+    if best_weights.exists():
+        model.load_weights(best_weights)
     final_weights = output_dir / "final.weights.h5"
     model.save_weights(final_weights)
+    # final.weights.h5 contains the restored best checkpoint. Keeping the
+    # temporary checkpoint as well doubles every experiment's disk usage.
+    best_weights.unlink(missing_ok=True)
     return final_weights

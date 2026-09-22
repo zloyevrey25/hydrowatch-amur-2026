@@ -6,14 +6,16 @@ build-backend = "setuptools.build_meta"
 name = "hydrowatch-amur"
 version = "0.1.0"
 description = "STURM-Flood baseline for the CosmoHackathon 2026 hydrological monitoring case"
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.11,<3.14"
 dependencies = [
   "numpy>=1.26,<3",
   "pandas>=2.2,<3",
   "rasterio>=1.4,<2",
   "scipy>=1.13,<2",
-  "tensorflow>=2.16,<2.19",
-  "tensorflow-io>=0.37,<0.38",
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.34,<1",
+  "tensorflow>=2.16,<2.19; python_version < '3.13'",
+  "tensorflow>=2.20,<2.22; python_version >= '3.13'",
 ]
 
 [project.scripts]
@@ -22,3 +24,5 @@ hydrowatch-baseline = "hydrowatch_baseline.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+hydrowatch_baseline = ["web/*.html", "web/*.css", "web/*.js", "web/vendor/*"]

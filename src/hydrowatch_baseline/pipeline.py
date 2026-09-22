@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 import glob
+import json
 
 import numpy as np
 import pandas as pd
@@ -97,9 +99,10 @@ def derive_masks(probabilities: np.ndarray, aux: np.ndarray, config: dict):
     flood = temporal_flood & learned_flood
     if not flood.any() and temporal_flood.any():
         flood = temporal_flood
-    return water_pre, water_peak, remove_small_components(
-        flood, hydrology["minimum_component_pixels"]
-    )
+    flood = remove_small_components(flood, hydrology["minimum_component_pixels"])
+    receded = water_pre & ~water_peak & ~permanent
+    receded = remove_small_components(receded, hydrology["minimum_component_pixels"])
+    return water_pre, water_peak, flood, receded
 
 
 def pixel_area_ha(profile: dict) -> float:
@@ -114,10 +117,27 @@ def write_mask(path: Path, mask: np.ndarray, profile: dict) -> None:
         destination.write(mask.astype("uint8"), 1)
 
 
-def run_dataset(data_root: Path, output_dir: Path, model, config: dict) -> pd.DataFrame:
+def select_pairs(pairs: pd.DataFrame, pair_ids: Iterable[str] | None = None) -> pd.DataFrame:
+    """Return requested pairs in dataset order and reject unknown identifiers."""
+    if pair_ids is None:
+        return pairs.copy()
+    requested = set(pair_ids)
+    unknown = sorted(requested - set(pairs["pair_id"]))
+    if unknown:
+        raise ValueError(f"Unknown pair_id(s): {unknown}")
+    return pairs[pairs["pair_id"].isin(requested)].copy()
+
+
+def run_dataset(
+    data_root: Path,
+    output_dir: Path,
+    model,
+    config: dict,
+    pair_ids: Iterable[str] | None = None,
+) -> pd.DataFrame:
     from .sturm import build_eight_channel_input, predict_multimask
 
-    pairs = pd.read_csv(data_root / "pairs.csv")
+    pairs = select_pairs(pd.read_csv(data_root / "pairs.csv"), pair_ids)
     rows = []
     sturm = config["sturm"]
     for pair in pairs.itertuples(index=False):
@@ -142,11 +162,12 @@ def run_dataset(data_root: Path, output_dir: Path, model, config: dict) -> pd.Da
             model_input, model, sturm["patch_size"], sturm["stride"], sturm["batch_size"]
         )
         aux = read_aux_on_grid(directory / "AUX_terrain_gsw.tif", profile)
-        water_pre, water_peak, flood = derive_masks(probabilities, aux, config)
+        water_pre, water_peak, flood, receded = derive_masks(probabilities, aux, config)
         prediction_dir = output_dir / "predictions"
         write_mask(prediction_dir / f"{pair.pair_id}_water_pre.tif", water_pre, profile)
         write_mask(prediction_dir / f"{pair.pair_id}_water_peak.tif", water_peak, profile)
         write_mask(prediction_dir / f"{pair.pair_id}_flood.tif", flood, profile)
+        write_mask(prediction_dir / f"{pair.pair_id}_receded.tif", receded, profile)
         area = pixel_area_ha(profile)
         rows.append({
             "pair_id": pair.pair_id,
@@ -157,4 +178,17 @@ def run_dataset(data_root: Path, output_dir: Path, model, config: dict) -> pd.Da
     submission = pd.DataFrame(rows)
     output_dir.mkdir(parents=True, exist_ok=True)
     submission.to_csv(output_dir / "submission.csv", index=False)
+    (output_dir / "run_metadata.json").write_text(
+        json.dumps({
+            "model": "sturm_multimodal_8ch",
+            "input_channels": [
+                "VV_pre", "VH_pre", "VV_peak", "VH_peak",
+                "NDWI_pre", "MNDWI_pre", "NDWI_peak", "MNDWI_peak",
+            ],
+            "output_masks": ["water_pre", "water_peak", "flood", "receded"],
+            "pairs": list(submission["pair_id"]),
+            "config": config,
+        }, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     return submission

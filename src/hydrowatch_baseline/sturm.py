@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import math
 import sys
+import types
 
 import numpy as np
 
@@ -12,6 +13,7 @@ INPUT_CHANNELS = (
     "ndwi_pre", "mndwi_pre", "ndwi_peak", "mndwi_peak",
 )
 OUTPUT_CHANNELS = ("water_pre", "water_peak", "flood")
+OPTICAL_FEATURES = ("ndwi", "mndwi")
 
 
 def _scale_db(values: np.ndarray, low: float, high: float) -> np.ndarray:
@@ -24,6 +26,14 @@ def _scale_index(values: np.ndarray, missing_value: float) -> np.ndarray:
     result = np.full(values.shape, missing_value, dtype=np.float32)
     result[valid] = np.clip((values[valid] + 1.0) / 2.0, 0.0, 1.0)
     return result
+
+
+def _selected_optical_features(config: dict) -> set[str]:
+    selected = set(config["model"].get("optical_features", OPTICAL_FEATURES))
+    unknown = selected - set(OPTICAL_FEATURES)
+    if unknown:
+        raise ValueError(f"Unknown optical features: {sorted(unknown)}")
+    return selected
 
 
 def build_eight_channel_input(
@@ -42,15 +52,22 @@ def build_eight_channel_input(
         raise ValueError(f"All eight channels must have one grid, got {[x.shape for x in arrays]}")
     limits = config["normalization"]
     missing = config["model"]["missing_optical_value"]
+    selected_optical = _selected_optical_features(config)
+
+    def optical(values: np.ndarray, name: str) -> np.ndarray:
+        if name not in selected_optical:
+            return np.full(values.shape, missing, dtype=np.float32)
+        return _scale_index(values, missing)
+
     channels = (
         _scale_db(vv_pre, limits["vv_min_db"], limits["vv_max_db"]),
         _scale_db(vh_pre, limits["vh_min_db"], limits["vh_max_db"]),
         _scale_db(vv_peak, limits["vv_min_db"], limits["vv_max_db"]),
         _scale_db(vh_peak, limits["vh_min_db"], limits["vh_max_db"]),
-        _scale_index(ndwi_pre, missing),
-        _scale_index(mndwi_pre, missing),
-        _scale_index(ndwi_peak, missing),
-        _scale_index(mndwi_peak, missing),
+        optical(ndwi_pre, "ndwi"),
+        optical(mndwi_pre, "mndwi"),
+        optical(ndwi_peak, "ndwi"),
+        optical(mndwi_peak, "mndwi"),
     )
     return np.stack(channels, axis=-1).astype(np.float32)
 
@@ -61,6 +78,10 @@ def _import_sturm_model(repository: Path):
         raise FileNotFoundError(f"STURM model code not found at {arch_dir}")
     sys.path.insert(0, str(arch_dir))
     try:
+        # The public STURM model imports tensorflow_io but never uses it.  The
+        # package has no Python 3.13 wheel, so provide an empty compatibility
+        # module instead of making Colab install an unused binary dependency.
+        sys.modules.setdefault("tensorflow_io", types.ModuleType("tensorflow_io"))
         from model import unet_model
     finally:
         sys.path.pop(0)
@@ -117,17 +138,9 @@ def _transfer_sturm_weights(source, feature_backbone, water_head, flood_head) ->
     flood_head.set_weights([flood_kernel, flood_bias])
 
 
-def load_multimodal_model(repository: Path, weights: Path, patch_size: int):
-    if not weights.exists():
-        raise FileNotFoundError(
-            f"STURM weights not found at {weights}. Run scripts/download_sturm_s1_weights.py first."
-        )
+def build_multimodal_model(repository: Path, patch_size: int):
+    """Build the final architecture without loading the large STURM checkpoint."""
     unet_model = _import_sturm_model(repository)
-    source = unet_model(
-        n_classes=2, tile_width=patch_size, tile_height=patch_size, n_bands=2,
-        n_blocks=6, class_weight_list=[1, 1], normalize_inputs=False,
-    )
-    source.load_weights(weights)
     import tensorflow as tf
 
     # Each date is processed independently by the same four-channel branch:
@@ -162,7 +175,25 @@ def load_multimodal_model(repository: Path, weights: Path, patch_size: int):
     )
     flood = flood_head(flood_features)
     outputs = tf.keras.layers.Concatenate(name="hydro_masks")([water_pre, water_peak, flood])
-    target = tf.keras.Model(inputs, outputs, name="sturm_multimodal_8ch")
+    return tf.keras.Model(inputs, outputs, name="sturm_multimodal_8ch")
+
+
+def load_multimodal_model(repository: Path, weights: Path, patch_size: int):
+    """Build and warm-start a training model from the public S1 checkpoint."""
+    if not weights.exists():
+        raise FileNotFoundError(
+            f"STURM weights not found at {weights}. Run scripts/download_sturm_s1_weights.py first."
+        )
+    unet_model = _import_sturm_model(repository)
+    source = unet_model(
+        n_classes=2, tile_width=patch_size, tile_height=patch_size, n_bands=2,
+        n_blocks=6, class_weight_list=[1, 1], normalize_inputs=False,
+    )
+    source.load_weights(weights)
+    target = build_multimodal_model(repository, patch_size)
+    feature_backbone = target.get_layer("shared_sturm_backbone")
+    water_head = target.get_layer("shared_water_logit")
+    flood_head = target.get_layer("flood")
     _transfer_sturm_weights(source, feature_backbone, water_head, flood_head)
     return target
 
