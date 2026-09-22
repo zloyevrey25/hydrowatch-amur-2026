@@ -246,6 +246,15 @@ Final inference requires `--trained-weights`. It builds the eight-channel
 architecture directly and does not load the original 1.8 GB STURM checkpoint.
 The checkpoint is needed only as the training warm start.
 
+For the time-boxed Colab MVP, after mounting Google Drive and cloning this
+repository, one command waits for the repaired Poyarkovo export and performs
+preparation, a bounded T4 training run, full inference, scoring, package
+validation and backup to Drive:
+
+```bash
+python scripts/run_colab_mvp.py
+```
+
 ## Interactive service
 
 Place the final `submission.csv` and prediction rasters in `outputs/final`, then
